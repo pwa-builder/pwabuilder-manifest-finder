@@ -19,12 +19,16 @@ namespace Microsoft.PWABuilder.ManifestFinder
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = null)] HttpRequest req,
             ILogger log)
         {
+            // Grab the required URL
             var url = req.Query["url"].FirstOrDefault();
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
             {
                 log.LogError("No valid url was specified. URL query text = '{rawUrl}'", url);
                 return new BadRequestObjectResult("You must specify a URL in the query string");
             }
+
+            // Grab the optional verbose flag
+            var verbose = req.Query["verbose"].FirstOrDefault() == "1";
 
             log.LogInformation("Running manifest detection for {url}", uri);
 
@@ -36,13 +40,18 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
             catch (Exception manifestLoadError)
             {
-                log.LogError(manifestLoadError, "Unable to detect manifest");
+                var errorMessage = verbose ? manifestLoadError.ToDetailedString() : manifestLoadError.Message;
+                log.LogWarning(manifestLoadError, "Failed to detect manifest for {url}. {message}", url, errorMessage);
                 result = new ManifestResult
                 {
-                    Error = "Error during manifest detection. " + manifestLoadError.ToString()
+                    Error = errorMessage
                 };
             }
 
+            if (result.ManifestContents != null)
+            {
+                log.LogInformation("Successfully detected manifest for {url}", url);
+            }
             return new OkObjectResult(result);
         }
     }

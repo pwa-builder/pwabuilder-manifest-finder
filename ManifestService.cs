@@ -1,11 +1,14 @@
 ﻿using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Security;
 using System.Text;
 using System.Threading.Tasks;
+using Optional;
+using Optional.Linq;
 
 namespace Microsoft.PWABuilder.ManifestFinder
 {
@@ -34,71 +37,78 @@ namespace Microsoft.PWABuilder.ManifestFinder
         public async Task<ManifestResult> Run()
         {
             var document = await LoadPage();
-            var manifestNode = document.DocumentNode?.SelectSingleNode("//head/link[@rel='manifest']");
-            if (manifestNode == null)
-            {
-                logger.LogInformation("Unable to locate manifest link tag inside <head> element");
-                return new ManifestResult
-                {
-                    Error = "Unable to locate manifest link tag inside head"
-                };
-            }
-
-            // Try to get the absolute URL to the manifest.
+            var manifestNode = LoadManifestNode(document);
             var manifestUrl = GetManifestUrl(manifestNode);
-            if (manifestUrl == null)
-            {
-                return new ManifestResult
-                {
-                    Error = "Manifest link element was found, but href couldn't be parsed into a valid URI. Node HTML was " + manifestNode.OuterHtml
-                };
-            }
-
-            // Load the contents of the manifest.
             var manifestContents = await LoadManifest(manifestUrl);
-            if (manifestContents == null)
-            {
-                return new ManifestResult
-                {
-                    Error = $"Manifest URL was found, but downloading manifest from {url} resulted in a null or empty string",
-                    ManifestUrl = url,
-                    ManifestContents = null
-                };
-            }
-
+            var manifestObject = DeserializeManifest(manifestContents);
             return new ManifestResult
             {
                 ManifestUrl = manifestUrl,
-                ManifestContents = manifestContents
+                ManifestContents = manifestObject
             };
         }
 
-        private async Task<string?> LoadManifest(Uri manifestUrl)
+        private HtmlNode LoadManifestNode(HtmlDocument document)
+        {
+            var node = document.DocumentNode?.SelectSingleNode("//head/link[@rel='manifest']");
+            if (node == null)
+            {
+                var error = new Exception("Unable to find manifest node in document");
+                var headNode = document.DocumentNode?.SelectSingleNode("//head");
+                if (headNode != null)
+                {
+                    error.Data.Add("headNode", headNode.OuterHtml);
+                }
+                throw error;
+            }
+
+            return node;
+        }
+
+        private async Task<string> LoadManifest(Uri manifestUrl)
         {
             try
             {
                 var manifestContents = await http.GetStringAsync(manifestUrl);
                 if (string.IsNullOrWhiteSpace(manifestContents))
                 {
-                    logger.LogInformation("Fetched manifest from {url}, but the contents was empty", manifestUrl);
-                    return null;
+                    throw new Exception($"Fetched manifest from {url}, but the contents was empty");
                 }
 
                 return manifestContents;
             }
             catch (Exception manifestFetchError)
             {
-                throw new Exception("Error fetching manifest contents from " + manifestUrl.ToString(), manifestFetchError);
+                manifestFetchError.Data.Add("manifestUrl", manifestUrl);
+                throw;
             }
         }
 
-        private Uri? GetManifestUrl(HtmlNode manifestNode)
+        private object DeserializeManifest(string manifestContents)
+        {
+            // Try to parse it into an object. Failure to do this suggests malformed manifest JSON.
+            try
+            {
+                return JsonConvert.DeserializeObject<dynamic>(manifestContents);
+            }
+            catch (Exception deserializeError)
+            {
+                deserializeError.Data.Add("manifestJson", manifestContents);
+                logger.LogError(deserializeError, "Fetched manifest contents but was unable to deserialize it into an object. Raw JSON: \r\n\r\n{json}", manifestContents);
+                throw;
+            }
+        }
+
+        private Uri GetManifestUrl(HtmlNode manifestNode)
         {
             var manifestHref = manifestNode.Attributes["href"]?.Value;
             if (!Uri.TryCreate(this.url, manifestHref, out var manifestUrl))
             {
-                logger.LogInformation("Manifest element was found, but href was invalid. Couldn't construct an absolute URI from {baseUrl} and {relativeUrl}. HTML of manifest link node = {nodeHtml}. Entire Head contents:\r\n\r\n{head}", this.url, manifestHref, manifestNode.OuterHtml, manifestNode.ParentNode?.InnerHtml);
-                return null;
+                var manifestHrefInvalid = new Exception($"Manifest element was found, but href was invalid. Couldn't construct an absolute URI from {this.url} and {manifestHref}");
+                manifestHrefInvalid.Data.Add("manifestHref", manifestHref);
+                manifestHrefInvalid.Data.Add("manifestNodeHtml", manifestNode.OuterHtml);
+                manifestHrefInvalid.Data.Add("headHtml", manifestNode.ParentNode?.InnerHtml);
+                throw manifestHrefInvalid;
             }
 
             return manifestUrl;
@@ -112,15 +122,20 @@ namespace Microsoft.PWABuilder.ManifestFinder
             };
             try
             {
-                var document = await web.LoadFromWebAsync(this.url, null, null);
-                return document;
+                return await web.LoadFromWebAsync(this.url, null, null);
             }
             catch (Exception error)
             {
+                logger.LogWarning(error, "Unable to load {url} via HtmlAgilityPack. Falling back to HttpClient load.", url);
                 var manuallyLoadedHtmlDoc = await TryLoadPageViaHttpClient();
                 if (manuallyLoadedHtmlDoc != null)
                 {
+                    logger.LogInformation("Fallback successful, loaded {url} via HttpClient.", url);
                     return manuallyLoadedHtmlDoc;
+                }
+                else
+                {
+                    logger.LogWarning("Fallback also failed to loaded {url}", url);
                 }
                 
                 throw new Exception("Unable to download page for " + url.ToString(), error);
