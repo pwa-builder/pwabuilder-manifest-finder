@@ -40,7 +40,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
             catch (Exception manifestLoadError)
             {
-                var errorMessage = verbose ? manifestLoadError.ToDetailedString() : manifestLoadError.Message;
+                var errorMessage = verbose ? manifestLoadError.ToDetailedString() : manifestLoadError.GetMessageWithInnerMessages();
                 log.LogWarning(manifestLoadError, "Failed to detect manifest for {url}. {message}", url, errorMessage);
                 result = new ManifestResult
                 {

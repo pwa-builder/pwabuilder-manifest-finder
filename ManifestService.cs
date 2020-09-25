@@ -102,9 +102,14 @@ namespace Microsoft.PWABuilder.ManifestFinder
         private Uri GetManifestUrl(HtmlNode manifestNode)
         {
             var manifestHref = manifestNode.Attributes["href"]?.Value;
+            if (string.IsNullOrWhiteSpace(manifestHref))
+            {
+                throw new Exception($"Manifest element was found, but href was missing. Raw HTML was {manifestNode.OuterHtml}");
+            }
+
             if (!Uri.TryCreate(this.url, manifestHref, out var manifestUrl))
             {
-                var manifestHrefInvalid = new Exception($"Manifest element was found, but href was invalid. Couldn't construct an absolute URI from {this.url} and {manifestHref}");
+                var manifestHrefInvalid = new Exception($"Manifest element was found, but couldn't construct an absolute URI from '{this.url}' and '{manifestHref}'");
                 manifestHrefInvalid.Data.Add("manifestHref", manifestHref);
                 manifestHrefInvalid.Data.Add("manifestNodeHtml", manifestNode.OuterHtml);
                 manifestHrefInvalid.Data.Add("headHtml", manifestNode.ParentNode?.InnerHtml);

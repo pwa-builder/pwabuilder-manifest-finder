@@ -15,6 +15,23 @@ namespace Microsoft.PWABuilder.ManifestFinder
     /// </remarks>
     internal static class ExceptionExtensions
     {
+        public static string GetMessageWithInnerMessages(this Exception exception)
+        {
+            var builder = new StringBuilder(exception.Message.Length * 2);
+            var currentException = exception;
+            while (currentException != null)
+            {
+                builder.Append(currentException.Message);
+                currentException = currentException.InnerException;
+                if (currentException != null)
+                {
+                    builder.Append(" > ");
+                }
+            }
+
+            return builder.ToString().Trim();
+        }
+
         public static string ToDetailedString(this Exception exception)
         {
             if (exception == null)
