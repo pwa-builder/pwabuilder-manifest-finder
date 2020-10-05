@@ -17,12 +17,8 @@ namespace Microsoft.PWABuilder.ManifestFinder
         private readonly Uri url;
         private readonly ILogger logger;
 
-        private static readonly HttpClient http = new HttpClient(new HttpClientHandler
-        {
-            // Don't worry about HTTPS errors
-            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
-            AllowAutoRedirect = true
-        });
+        private const string userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36 Edg/85.0.564.44";
+        private static readonly HttpClient http = CreateHttpClient();
 
         public ManifestService(Uri url, ILogger logger)
         {
@@ -123,7 +119,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
         {
             var web = new HtmlWeb
             {
-                UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36 Edg/85.0.564.44",
+                UserAgent = userAgent,
             };
             try
             {
@@ -171,6 +167,18 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 logger.LogError(docLoadError, "Fetched page via HttpClient fallback, but the HTML couldn't be loaded into a document. Raw HTML: \r\n\r\n{raw}", html);
                 return null;
             }
+        }
+
+        private static HttpClient CreateHttpClient()
+        {
+            var http = new HttpClient(new HttpClientHandler
+            {
+                // Don't worry about HTTPS errors
+                ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+                AllowAutoRedirect = true
+            });
+            http.DefaultRequestHeaders.UserAgent.ParseAdd(userAgent);
+            return http;
         }
     }
 }
