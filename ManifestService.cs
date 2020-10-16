@@ -65,10 +65,10 @@ namespace Microsoft.PWABuilder.ManifestFinder
         {
             try
             {
-                var manifestContents = await http.GetStringAsync(manifestUrl);
+                var manifestContents = await FetchHttpWithHttp2Fallback(manifestUrl);
                 if (string.IsNullOrWhiteSpace(manifestContents))
                 {
-                    throw new Exception($"Fetched manifest from {url}, but the contents was empty");
+                    throw new Exception($"Fetched manifest from {manifestUrl}, but the contents was empty");
                 }
 
                 return manifestContents;
@@ -77,6 +77,36 @@ namespace Microsoft.PWABuilder.ManifestFinder
             {
                 manifestFetchError.Data.Add("manifestUrl", manifestUrl);
                 throw;
+            }
+        }
+
+        private async Task<string?> FetchHttpWithHttp2Fallback(Uri url)
+        {
+            try
+            {
+                return await http.GetStringAsync(url);
+            }
+            catch (Exception httpException)
+            {
+                logger.LogWarning(httpException, "Failed to load {url} using HTTP. Falling back to HTTP/2.", url);
+            }
+
+            // Attempt HTTP/2
+            try
+            {
+                using var http2Request = new HttpRequestMessage(HttpMethod.Get, url)
+                {
+                    Version = new Version(2, 0)
+                };
+                using var result = await http.SendAsync(http2Request);
+                var contentString = await result.Content.ReadAsStringAsync();
+                logger.LogInformation("Successfully fetched {url} via HTTP/2 fallback", url);
+                return contentString;
+            }
+            catch (Exception http2Error)
+            {
+                logger.LogWarning(http2Error, "Unable to fetch {url} using HTTP/2 fallback.", url);
+                return null;
             }
         }
 
@@ -119,7 +149,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
         {
             var web = new HtmlWeb
             {
-                UserAgent = userAgent,
+                UserAgent = userAgent
             };
             try
             {
@@ -148,11 +178,11 @@ namespace Microsoft.PWABuilder.ManifestFinder
             string html;
             try
             {
-                html = await http.GetStringAsync(this.url);
+                html = await FetchHttpWithHttp2Fallback(this.url);
             }
             catch (Exception httpError)
             {
-                logger.LogError(httpError, "Fallback to fetch page with HttpClient failed");
+                logger.LogError(httpError, "Fallback to fetch {url} with HttpClient failed.", this.url);
                 return null;
             }
 
