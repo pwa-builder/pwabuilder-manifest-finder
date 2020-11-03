@@ -137,7 +137,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             // we cannot just do Uri.TryCreate(this.url, manifestHref), because this will omit the local path.
             // To fix this, we append the "/" to the absolute path.
             // Broke: new Uri(new Uri("https://ics.hutton.ac.uk/gridscore"), "site.webmanifest") => "https://ics.hutton.ac.uk/site.webmanifest" (wrong manifest URL!)
-            // Fixed: new Uri(new Uri("https://ics.hutton.ac.uk/gridscore/"), "site.webmanifest") => "https://ics.hutton.ac.uk/gridscore/site.webmanifest" (wrong manifest URL!)
+            // Fixed: new Uri(new Uri("https://ics.hutton.ac.uk/gridscore/"), "site.webmanifest") => "https://ics.hutton.ac.uk/gridscore/site.webmanifest" (correct manifest URL)
             var rootUrl = string.IsNullOrEmpty(this.url.PathAndQuery) ? url : new Uri(this.url.AbsoluteUri + "/");
             if (!Uri.TryCreate(rootUrl, manifestHref, out var manifestUrl))
             {
