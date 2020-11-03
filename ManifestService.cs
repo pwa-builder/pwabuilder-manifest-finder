@@ -133,7 +133,13 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 throw new Exception($"Manifest element was found, but href was missing. Raw HTML was {manifestNode.OuterHtml}");
             }
 
-            if (!Uri.TryCreate(this.url, manifestHref, out var manifestUrl))
+            // If the site URL has a local path (e.g. "/gridscore" in the URL https://ics.hutton.ac.uk/gridscore), then
+            // we cannot just do Uri.TryCreate(this.url, manifestHref), because this will omit the local path.
+            // To fix this, we append the "/" to the absolute path.
+            // Broke: new Uri(new Uri("https://ics.hutton.ac.uk/gridscore"), "site.webmanifest") => "https://ics.hutton.ac.uk/site.webmanifest" (wrong manifest URL!)
+            // Fixed: new Uri(new Uri("https://ics.hutton.ac.uk/gridscore/"), "site.webmanifest") => "https://ics.hutton.ac.uk/gridscore/site.webmanifest" (wrong manifest URL!)
+            var rootUrl = string.IsNullOrEmpty(this.url.PathAndQuery) ? url : new Uri(this.url.AbsoluteUri + "/");
+            if (!Uri.TryCreate(rootUrl, manifestHref, out var manifestUrl))
             {
                 var manifestHrefInvalid = new Exception($"Manifest element was found, but couldn't construct an absolute URI from '{this.url}' and '{manifestHref}'");
                 manifestHrefInvalid.Data.Add("manifestHref", manifestHref);
