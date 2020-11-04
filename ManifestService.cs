@@ -65,7 +65,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
         {
             try
             {
-                var manifestContents = await FetchHttpWithHttp2Fallback(manifestUrl);
+                var manifestContents = await FetchHttpWithHttp2Fallback(manifestUrl, "application/json");
                 if (string.IsNullOrWhiteSpace(manifestContents))
                 {
                     throw new Exception($"Fetched manifest from {manifestUrl}, but the contents was empty");
@@ -80,11 +80,18 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
         }
 
-        private async Task<string?> FetchHttpWithHttp2Fallback(Uri url)
+        private async Task<string?> FetchHttpWithHttp2Fallback(Uri url, string? acceptHeader)
         {
             try
             {
-                return await http.GetStringAsync(url);
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+                if (!string.IsNullOrEmpty(acceptHeader))
+                {
+                    httpRequest.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue(acceptHeader));
+                }
+                var httpResponse = await http.SendAsync(httpRequest);
+                httpResponse.EnsureSuccessStatusCode();
+                return await httpResponse.Content.ReadAsStringAsync();
             }
             catch (Exception httpException)
             {
@@ -98,7 +105,12 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 {
                     Version = new Version(2, 0)
                 };
+                if (!string.IsNullOrEmpty(acceptHeader))
+                {
+                    http2Request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue(acceptHeader));
+                }
                 using var result = await http.SendAsync(http2Request);
+                result.EnsureSuccessStatusCode();
                 var contentString = await result.Content.ReadAsStringAsync();
                 logger.LogInformation("Successfully fetched {url} via HTTP/2 fallback", url);
                 return contentString;
@@ -113,6 +125,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
         private object DeserializeManifest(string manifestContents)
         {
             // Try to parse it into an object. Failure to do this suggests malformed manifest JSON.
+            // We've also seen issues where sites are misconfigured to return the HTML of the page when requesting the manifest.
             try
             {
                 return JsonConvert.DeserializeObject<dynamic>(manifestContents);
@@ -138,7 +151,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             // To fix this, we append the "/" to the absolute path.
             // Broke: new Uri(new Uri("https://ics.hutton.ac.uk/gridscore"), "site.webmanifest") => "https://ics.hutton.ac.uk/site.webmanifest" (wrong manifest URL!)
             // Fixed: new Uri(new Uri("https://ics.hutton.ac.uk/gridscore/"), "site.webmanifest") => "https://ics.hutton.ac.uk/gridscore/site.webmanifest" (correct manifest URL)
-            var rootUrl = string.IsNullOrEmpty(this.url.PathAndQuery) ? url : new Uri(this.url.AbsoluteUri + "/");
+            var rootUrl = string.IsNullOrEmpty(this.url.PathAndQuery) || this.url.PathAndQuery == "/" ? url : new Uri(this.url.AbsoluteUri.TrimEnd('/') + "/");
             if (!Uri.TryCreate(rootUrl, manifestHref, out var manifestUrl))
             {
                 var manifestHrefInvalid = new Exception($"Manifest element was found, but couldn't construct an absolute URI from '{this.url}' and '{manifestHref}'");
@@ -184,7 +197,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             string html;
             try
             {
-                html = await FetchHttpWithHttp2Fallback(this.url);
+                html = await FetchHttpWithHttp2Fallback(this.url, "text/html");
             }
             catch (Exception httpError)
             {
