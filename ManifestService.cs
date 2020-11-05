@@ -194,7 +194,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
 
         private async Task<HtmlDocument?> TryLoadPageViaHttpClient()
         {
-            string html;
+            string? html;
             try
             {
                 html = await FetchHttpWithHttp2Fallback(this.url, "text/html");
@@ -208,7 +208,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             try
             {
                 var htmlDoc = new HtmlDocument();
-                htmlDoc.LoadHtml(html);
+                htmlDoc.LoadHtml(html ?? string.Empty);
                 return htmlDoc;
             }
             catch (Exception docLoadError)
