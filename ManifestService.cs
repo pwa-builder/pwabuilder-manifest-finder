@@ -34,12 +34,11 @@ namespace Microsoft.PWABuilder.ManifestFinder
         {
             var document = await LoadPage();
             var manifestNode = LoadManifestNode(document);
-            var manifestUrl = GetManifestUrl(manifestNode);
-            var manifestContents = await LoadManifest(manifestUrl);
-            var manifestObject = DeserializeManifest(manifestContents);
+            var manifestContext = await LoadManifestInfo(manifestNode);
+            var manifestObject = DeserializeManifest(manifestContext.Json);
             return new ManifestResult
             {
-                ManifestUrl = manifestUrl,
+                ManifestUrl = manifestContext.Uri,
                 ManifestContents = manifestObject
             };
         }
@@ -65,7 +64,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
         {
             try
             {
-                var manifestContents = await FetchHttpWithHttp2Fallback(manifestUrl, "application/json");
+                var manifestContents = await TryFetchHttpWithHttp2Fallback(manifestUrl, "application/json");
                 if (string.IsNullOrWhiteSpace(manifestContents))
                 {
                     throw new Exception($"Fetched manifest from {manifestUrl}, but the contents was empty");
@@ -80,7 +79,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
         }
 
-        private async Task<string?> FetchHttpWithHttp2Fallback(Uri url, string? acceptHeader)
+        private async Task<string?> TryFetchHttpWithHttp2Fallback(Uri url, string? acceptHeader)
         {
             try
             {
@@ -138,30 +137,60 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
         }
 
-        private Uri GetManifestUrl(HtmlNode manifestNode)
+        private async Task<ManifestContext> LoadManifestInfo(HtmlNode manifestNode)
         {
+            // Make sure we have a vlaid href attribute on the manifest node.
             var manifestHref = manifestNode.Attributes["href"]?.Value;
             if (string.IsNullOrWhiteSpace(manifestHref))
             {
                 throw new Exception($"Manifest element was found, but href was missing. Raw HTML was {manifestNode.OuterHtml}");
             }
 
-            // If the site URL has a local path (e.g. "/gridscore" in the URL https://ics.hutton.ac.uk/gridscore), then
-            // we cannot just do Uri.TryCreate(this.url, manifestHref), because this will omit the local path.
-            // To fix this, we append the "/" to the absolute path.
-            // Broke: new Uri(new Uri("https://ics.hutton.ac.uk/gridscore"), "site.webmanifest") => "https://ics.hutton.ac.uk/site.webmanifest" (wrong manifest URL!)
-            // Fixed: new Uri(new Uri("https://ics.hutton.ac.uk/gridscore/"), "site.webmanifest") => "https://ics.hutton.ac.uk/gridscore/site.webmanifest" (correct manifest URL)
-            var rootUrl = string.IsNullOrEmpty(this.url.PathAndQuery) || this.url.PathAndQuery == "/" ? url : new Uri(this.url.AbsoluteUri.TrimEnd('/') + "/");
-            if (!Uri.TryCreate(rootUrl, manifestHref, out var manifestUrl))
+            logger.LogInformation("Manifest node detected with href {href}", manifestHref);
+
+            // First, try Uri.TryCreate(this.url, manifestHref) and see if it's valid.
+            // This will work for most sites, e.g. https://www.sensoryapphouse.com/abstract4-pwa-xbox/index.html -> https://www.sensoryapphouse.com/abstract4-pwa-xbox/manifest.json
+            if (Uri.TryCreate(this.url, manifestHref, out var manifestAbsoluteUrl))
             {
-                var manifestHrefInvalid = new Exception($"Manifest element was found, but couldn't construct an absolute URI from '{this.url}' and '{manifestHref}'");
-                manifestHrefInvalid.Data.Add("manifestHref", manifestHref);
-                manifestHrefInvalid.Data.Add("manifestNodeHtml", manifestNode.OuterHtml);
-                manifestHrefInvalid.Data.Add("headHtml", manifestNode.ParentNode?.InnerHtml);
-                throw manifestHrefInvalid;
+                // Fetch the manifest.
+                logger.LogInformation("Attempting manifest download using absolute URL {url}", manifestAbsoluteUrl);
+                var manifestContents = await TryFetchHttpWithHttp2Fallback(manifestAbsoluteUrl, "application/json");
+                if (!string.IsNullOrEmpty(manifestContents))
+                {
+                    return new ManifestContext(manifestAbsoluteUrl, manifestContents);
+                }
+
+                logger.LogWarning("Unable to download manifest using absolute URL {url}. Falling back to local path detection.", manifestAbsoluteUrl);
             }
 
-            return manifestUrl;
+            // Fetching the manifest relative to the URL failed. This might mean the site has a local path that needs to end in slash.
+            // If the site URL has a local path (e.g. "/gridscore" in the URL https://ics.hutton.ac.uk/gridscore), then
+            // we cannot just do Uri.TryCreate(this.url, manifestHref), because this will omit the local path.
+            // To fix this, we append the "/" to the absolute path:
+            // Broke: new Uri(new Uri("https://ics.hutton.ac.uk/gridscore"), "site.webmanifest") => "https://ics.hutton.ac.uk/site.webmanifest" (wrong manifest URL!)
+            // Fixed: new Uri(new Uri("https://ics.hutton.ac.uk/gridscore/"), "site.webmanifest") => "https://ics.hutton.ac.uk/gridscore/site.webmanifest" (correct manifest URL)
+            Uri? localPathManifestUrl = null;
+            if (!string.IsNullOrEmpty(url.PathAndQuery) && url.PathAndQuery != "/" && !url.AbsoluteUri.EndsWith("/"))
+            {
+                var rootUrl = new Uri(this.url.AbsoluteUri + "/");
+                if (!Uri.TryCreate(rootUrl, manifestHref, out localPathManifestUrl))
+                {
+                    var manifestHrefInvalid = new Exception($"Manifest element was found, but couldn't construct an absolute URI from '{this.url}' and '{manifestHref}'");
+                    manifestHrefInvalid.Data.Add("manifestHref", manifestHref);
+                    manifestHrefInvalid.Data.Add("manifestNodeHtml", manifestNode.OuterHtml);
+                    manifestHrefInvalid.Data.Add("headHtml", manifestNode.ParentNode?.InnerHtml);
+                    throw manifestHrefInvalid;
+                }
+
+                logger.LogInformation("PWA URL has local path {path}. Attempting manifest detection with local path fallback and absolute manifest URL {url}.", url.PathAndQuery, localPathManifestUrl);
+                var manifestContents = await TryFetchHttpWithHttp2Fallback(localPathManifestUrl, "application/json");
+                if (!string.IsNullOrEmpty(manifestContents))
+                {
+                    return new ManifestContext(localPathManifestUrl, manifestContents);
+                }
+            }
+
+            throw new Exception($"Unable to detect manifest. Attempted manifest download at {manifestAbsoluteUrl} and {localPathManifestUrl}, but both failed.");
         }
 
         private async Task<HtmlDocument> LoadPage()
@@ -197,7 +226,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             string? html;
             try
             {
-                html = await FetchHttpWithHttp2Fallback(this.url, "text/html");
+                html = await TryFetchHttpWithHttp2Fallback(this.url, "text/html");
             }
             catch (Exception httpError)
             {
