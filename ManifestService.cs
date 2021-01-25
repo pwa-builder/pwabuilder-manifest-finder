@@ -249,12 +249,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
 
         private static HttpClient CreateHttpClient()
         {
-            var http = new HttpClient(new HttpClientHandler
-            {
-                // Don't worry about HTTPS errors
-                ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
-                AllowAutoRedirect = true
-            });
+            var http = new HttpClientIgnoringSslErrors();
             http.DefaultRequestHeaders.UserAgent.ParseAdd(userAgent);
             return http;
         }

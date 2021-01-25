@@ -9,6 +9,8 @@ using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using System.Linq;
 using HtmlAgilityPack;
+using Microsoft.Extensions.Configuration;
+using System.Diagnostics;
 
 namespace Microsoft.PWABuilder.ManifestFinder
 {
@@ -17,8 +19,11 @@ namespace Microsoft.PWABuilder.ManifestFinder
         [FunctionName("FindManifest")]
         public static async Task<IActionResult> Run(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = null)] HttpRequest req,
-            ILogger log)
+            ILogger log,
+            ExecutionContext context)
         {
+            var appSettings = LoadSettings(context);
+
             // Grab the required URL
             var url = req.Query["url"].FirstOrDefault();
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
@@ -33,10 +38,14 @@ namespace Microsoft.PWABuilder.ManifestFinder
             log.LogInformation("Running manifest detection for {url}", uri);
 
             var manifestService = new ManifestService(uri, log);
+            var urlLogger = new UrlLogger(appSettings, log);
             ManifestResult result;
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
             try
             {
                 result = await manifestService.Run();
+                urlLogger.LogUrlResult(uri, result.Error == null, result.Error, stopwatch.Elapsed);
             }
             catch (Exception manifestLoadError)
             {
@@ -46,6 +55,11 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 {
                     Error = errorMessage
                 };
+                urlLogger.LogUrlResult(uri, false, manifestLoadError.ToString(), stopwatch.Elapsed);
+            }
+            finally
+            {
+                stopwatch.Stop();
             }
 
             if (result.ManifestContents != null)
@@ -53,6 +67,18 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 log.LogInformation("Successfully detected manifest for {url}", url);
             }
             return new OkObjectResult(result);
+        }
+
+        private static AppSettings LoadSettings(ExecutionContext context)
+        {
+            var config = new ConfigurationBuilder()
+                .SetBasePath(context.FunctionAppDirectory)
+                .AddJsonFile("local.settings.json", optional: true, reloadOnChange: true)
+                .AddEnvironmentVariables()
+                .Build();
+            var settings = new AppSettings();
+            config.GetSection("AppSettings").Bind(settings);
+            return settings;
         }
     }
 }
