@@ -31,6 +31,10 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 log.LogError("No valid url was specified. URL query text = '{rawUrl}'", url);
                 return new BadRequestObjectResult("You must specify a URL in the query string");
             }
+            if (uri.IsLoopback)
+            {
+                return new BadRequestObjectResult("URIs must not be local");
+            }
 
             // Grab the optional verbose flag
             var verbose = req.Query["verbose"].FirstOrDefault() == "1";
