@@ -22,7 +22,20 @@ namespace Microsoft.PWABuilder.ManifestFinder
             this.logger = logger;
         }
 
-        public void LogUrlResult(Uri url, bool success, string? error, TimeSpan elapsed)
+        public void LogUrlResult(Uri url, bool manifestDetected, bool? manifestMissing, string? error, TimeSpan elapsed)
+        {
+            try
+            {
+                LogUrlResultCore(url, manifestDetected, manifestMissing, error, elapsed);
+            }
+            catch (Exception urlLogError)
+            {
+                logger.LogWarning(urlLogError, "Unable to log URL due to exception");
+                // We don't throw the exception here, as we don't consider it catastrophic.
+            }
+        }
+
+        private void LogUrlResultCore(Uri url, bool success, bool? manifestMissing, string? error, TimeSpan elapsed)
         {
             if (string.IsNullOrEmpty(this.settings.UrlLoggingApi))
             {
@@ -34,6 +47,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             {
                 Url = url,
                 ManifestDetected = success,
+                ManifestMissing = manifestMissing,
                 ManifestDetectionError = error,
                 ManifestDetectionTimeInMs = elapsed.TotalMilliseconds
             });

@@ -22,7 +22,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             ILogger log,
             ExecutionContext context)
         {
-            var appSettings = LoadSettings(context);
+            var appSettings = LoadSettings(context, log);
 
             // Grab the required URL
             var url = req.Query["url"].FirstOrDefault();
@@ -49,7 +49,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             try
             {
                 result = await manifestService.Run();
-                urlLogger.LogUrlResult(uri, result.Error == null, result.Error, stopwatch.Elapsed);
+                urlLogger.LogUrlResult(uri, result.Error == null, result.ManifestUrl == null && result.ManifestContents == null, result.Error, stopwatch.Elapsed);
             }
             catch (Exception manifestLoadError)
             {
@@ -57,9 +57,10 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 log.LogWarning(manifestLoadError, "Failed to detect manifest for {url}. {message}", url, errorMessage);
                 result = new ManifestResult
                 {
-                    Error = errorMessage
+                    Error = errorMessage,
+                    ManifestMissing = manifestLoadError is ManifestNotFoundException
                 };
-                urlLogger.LogUrlResult(uri, false, manifestLoadError.ToString(), stopwatch.Elapsed);
+                urlLogger.LogUrlResult(uri, false, manifestLoadError is ManifestNotFoundException, manifestLoadError.ToString(), stopwatch.Elapsed);
             }
             finally
             {
@@ -73,16 +74,24 @@ namespace Microsoft.PWABuilder.ManifestFinder
             return new OkObjectResult(result);
         }
 
-        private static AppSettings LoadSettings(ExecutionContext context)
+        private static AppSettings LoadSettings(ExecutionContext context, ILogger log)
         {
-            var config = new ConfigurationBuilder()
-                .SetBasePath(context.FunctionAppDirectory)
-                .AddJsonFile("local.settings.json", optional: true, reloadOnChange: true)
-                .AddEnvironmentVariables()
-                .Build();
-            var settings = new AppSettings();
-            config.GetSection("AppSettings").Bind(settings);
-            return settings;
+            try
+            {
+                var config = new ConfigurationBuilder()
+                    .SetBasePath(context.FunctionAppDirectory)
+                    .AddJsonFile("local.settings.json", optional: true, reloadOnChange: false)
+                    .AddEnvironmentVariables()
+                    .Build();
+                var settings = new AppSettings();
+                config.GetSection("AppSettings").Bind(settings);
+                return settings;
+            }
+            catch (Exception settingsError)
+            {
+                log.LogError(settingsError, "Exception occurred loading function settings");
+                throw;
+            }
         }
     }
 }

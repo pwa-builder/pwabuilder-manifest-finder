@@ -17,7 +17,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
         private readonly Uri url;
         private readonly ILogger logger;
 
-        private const string userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36 Edg/85.0.564.44";
+        private const string userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.96 Safari/537.36 Edg/88.0.705.56 PWABuilder";
         private static readonly HttpClient http = CreateHttpClient();
 
         public ManifestService(Uri url, ILogger logger)
@@ -48,7 +48,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             var node = document.DocumentNode?.SelectSingleNode("//head/link[@rel='manifest']");
             if (node == null)
             {
-                var error = new Exception("Unable to find manifest node in document");
+                var error = new ManifestNotFoundException("Unable to find manifest node in document");
                 var headNode = document.DocumentNode?.SelectSingleNode("//head");
                 if (headNode != null)
                 {
@@ -58,25 +58,6 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
 
             return node;
-        }
-
-        private async Task<string> LoadManifest(Uri manifestUrl)
-        {
-            try
-            {
-                var manifestContents = await TryFetchHttpWithHttp2Fallback(manifestUrl, "application/json");
-                if (string.IsNullOrWhiteSpace(manifestContents))
-                {
-                    throw new Exception($"Fetched manifest from {manifestUrl}, but the contents was empty");
-                }
-
-                return manifestContents;
-            }
-            catch (Exception manifestFetchError)
-            {
-                manifestFetchError.Data.Add("manifestUrl", manifestUrl);
-                throw;
-            }
         }
 
         private async Task<string?> TryFetchHttpWithHttp2Fallback(Uri url, string? acceptHeader)
@@ -143,7 +124,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             var manifestHref = manifestNode.Attributes["href"]?.Value;
             if (string.IsNullOrWhiteSpace(manifestHref))
             {
-                throw new Exception($"Manifest element was found, but href was missing. Raw HTML was {manifestNode.OuterHtml}");
+                throw new ManifestNotFoundException($"Manifest element was found, but href was missing. Raw HTML was {manifestNode.OuterHtml}");
             }
 
             logger.LogInformation("Manifest node detected with href {href}", manifestHref);
@@ -175,7 +156,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 var rootUrl = new Uri(this.url.AbsoluteUri + "/");
                 if (!Uri.TryCreate(rootUrl, manifestHref, out localPathManifestUrl))
                 {
-                    var manifestHrefInvalid = new Exception($"Manifest element was found, but couldn't construct an absolute URI from '{this.url}' and '{manifestHref}'");
+                    var manifestHrefInvalid = new ManifestNotFoundException($"Manifest element was found, but couldn't construct an absolute URI from '{this.url}' and '{manifestHref}'");
                     manifestHrefInvalid.Data.Add("manifestHref", manifestHref);
                     manifestHrefInvalid.Data.Add("manifestNodeHtml", manifestNode.OuterHtml);
                     manifestHrefInvalid.Data.Add("headHtml", manifestNode.ParentNode?.InnerHtml);
@@ -190,7 +171,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 }
             }
 
-            throw new Exception($"Unable to detect manifest. Attempted manifest download at {manifestAbsoluteUrl} and {localPathManifestUrl}, but both failed.");
+            throw new ManifestNotFoundException($"Unable to detect manifest. Attempted manifest download at {manifestAbsoluteUrl} and {localPathManifestUrl}, but both failed.");
         }
 
         private async Task<HtmlDocument> LoadPage()
