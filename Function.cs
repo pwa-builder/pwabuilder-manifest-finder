@@ -44,23 +44,21 @@ namespace Microsoft.PWABuilder.ManifestFinder
             var manifestService = new ManifestService(uri, log);
             var urlLogger = new UrlLogger(appSettings, log);
             ManifestResult result;
-            Stopwatch stopwatch = new Stopwatch();
+            var stopwatch = new Stopwatch();
             stopwatch.Start();
             try
             {
                 result = await manifestService.Run();
-                urlLogger.LogUrlResult(uri, result.Error == null, result.ManifestUrl == null && result.ManifestContents == null, result.Error, stopwatch.Elapsed);
+                urlLogger.LogUrlResult(uri, result.Error == null, null, result.Error, stopwatch.Elapsed);
             }
             catch (Exception manifestLoadError)
             {
                 var errorMessage = verbose ? manifestLoadError.ToDetailedString() : manifestLoadError.GetMessageWithInnerMessages();
                 log.LogWarning(manifestLoadError, "Failed to detect manifest for {url}. {message}", url, errorMessage);
-                result = new ManifestResult
-                {
-                    Error = errorMessage,
-                    ManifestMissing = manifestLoadError is ManifestNotFoundException
-                };
-                urlLogger.LogUrlResult(uri, false, manifestLoadError is ManifestNotFoundException, manifestLoadError.ToString(), stopwatch.Elapsed);
+                result = new ManifestResult { Error = errorMessage };
+                var manifestMissingDetails = manifestLoadError is ManifestNotFoundException ? manifestLoadError.Message : null;
+                var unexpectedError = manifestMissingDetails == null ? errorMessage : null;
+                urlLogger.LogUrlResult(uri, false, manifestMissingDetails, unexpectedError, stopwatch.Elapsed);
             }
             finally
             {

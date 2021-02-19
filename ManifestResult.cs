@@ -9,6 +9,5 @@ namespace Microsoft.PWABuilder.ManifestFinder
         public Uri? ManifestUrl { get; set; }
         public object? ManifestContents { get; set; }
         public string? Error { get; set; }
-        public bool ManifestMissing { get; set; }
     }
 }
