@@ -49,7 +49,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             try
             {
                 result = await manifestService.Run();
-                urlLogger.LogUrlResult(uri, result.Error == null, null, result.Error, stopwatch.Elapsed);
+                urlLogger.LogUrlResult(uri, result.Error == null, result.ManifestContents, null, result.Error, stopwatch.Elapsed);
             }
             catch (Exception manifestLoadError)
             {
@@ -58,7 +58,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 result = new ManifestResult { Error = errorMessage };
                 var manifestMissingDetails = manifestLoadError is ManifestNotFoundException ? manifestLoadError.Message : null;
                 var unexpectedError = manifestMissingDetails == null ? errorMessage : null;
-                urlLogger.LogUrlResult(uri, false, manifestMissingDetails, unexpectedError, stopwatch.Elapsed);
+                urlLogger.LogUrlResult(uri, false, null, manifestMissingDetails, unexpectedError, stopwatch.Elapsed);
             }
             finally
             {

@@ -22,11 +22,11 @@ namespace Microsoft.PWABuilder.ManifestFinder
             this.logger = logger;
         }
 
-        public void LogUrlResult(Uri url, bool manifestDetected, string? manifestMissingDetails, string? error, TimeSpan elapsed)
+        public void LogUrlResult(Uri url, bool manifestDetected, object? manifest, string? manifestMissingDetails, string? error, TimeSpan elapsed)
         {
             try
             {
-                LogUrlResultCore(url, manifestDetected, manifestMissingDetails, error, elapsed);
+                LogUrlResultCore(url, manifestDetected, manifest, manifestMissingDetails, error, elapsed);
             }
             catch (Exception urlLogError)
             {
@@ -35,7 +35,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
         }
 
-        private void LogUrlResultCore(Uri url, bool manifestDetected, string? manifestMissingDetails, string? error, TimeSpan elapsed)
+        private void LogUrlResultCore(Uri url, bool manifestDetected, object? manifest, string? manifestMissingDetails, string? error, TimeSpan elapsed)
         {
             if (string.IsNullOrEmpty(this.settings.UrlLoggingApi))
             {
@@ -49,7 +49,8 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 ManifestDetected = manifestDetected,
                 ManifestMissingDetails = manifestMissingDetails,
                 ManifestDetectionError = error,
-                ManifestDetectionTimeInMs = elapsed.TotalMilliseconds
+                ManifestDetectionTimeInMs = elapsed.TotalMilliseconds,
+                Manifest = manifest
             });
             http.PostAsync(this.settings.UrlLoggingApi, new StringContent(args))
                 .ContinueWith(_ => logger.LogInformation("Successfully sent {url} to URL logging service. Success = {success}, Error = {error}, Elapsed = {elapsed}", url, manifestDetected, error, elapsed), TaskContinuationOptions.OnlyOnRanToCompletion)

@@ -45,7 +45,8 @@ namespace Microsoft.PWABuilder.ManifestFinder
 
         private HtmlNode LoadManifestNode(HtmlDocument document)
         {
-            var node = document.DocumentNode?.SelectSingleNode("//head/link[@rel='manifest']");
+            var node = document.DocumentNode?.SelectSingleNode("//head/link[@rel='manifest']") ??
+                document.DocumentNode?.SelectSingleNode("//link[@rel='manifest']"); // We've witnesses some sites in the wild with no <head>, and they put the manifest link right in the HTML.
             if (node == null)
             {
                 var error = new ManifestNotFoundException("Unable to find manifest node in document");
