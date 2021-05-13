@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace Microsoft.PWABuilder.ManifestFinder
@@ -22,11 +23,11 @@ namespace Microsoft.PWABuilder.ManifestFinder
             this.logger = logger;
         }
 
-        public void LogUrlResult(Uri url, bool manifestDetected, object? manifest, string? manifestMissingDetails, string? error, TimeSpan elapsed)
+        public void LogUrlResult(Uri url, bool manifestDetected, int? manifestScore, string? manifestMissingDetails, string? error, TimeSpan elapsed)
         {
             try
             {
-                LogUrlResultCore(url, manifestDetected, manifest, manifestMissingDetails, error, elapsed);
+                LogUrlResultCore(url, manifestDetected, manifestScore, manifestMissingDetails, error, elapsed);
             }
             catch (Exception urlLogError)
             {
@@ -35,7 +36,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
         }
 
-        private void LogUrlResultCore(Uri url, bool manifestDetected, object? manifest, string? manifestMissingDetails, string? error, TimeSpan elapsed)
+        private void LogUrlResultCore(Uri url, bool manifestDetected, int? manifestScore, string? manifestMissingDetails, string? error, TimeSpan elapsed)
         {
             if (string.IsNullOrEmpty(this.settings.UrlLoggingApi))
             {
@@ -43,14 +44,14 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 return;
             }
 
-            var args = System.Text.Json.JsonSerializer.Serialize(new
+            var args = JsonSerializer.Serialize(new
             {
                 Url = url,
                 ManifestDetected = manifestDetected,
                 ManifestMissingDetails = manifestMissingDetails,
                 ManifestDetectionError = error,
                 ManifestDetectionTimeInMs = elapsed.TotalMilliseconds,
-                Manifest = manifest
+                ManifestScore = manifestScore
             });
             http.PostAsync(this.settings.UrlLoggingApi, new StringContent(args))
                 .ContinueWith(_ => logger.LogInformation("Successfully sent {url} to URL logging service. Success = {success}, Error = {error}, Elapsed = {elapsed}", url, manifestDetected, error, elapsed), TaskContinuationOptions.OnlyOnRanToCompletion)

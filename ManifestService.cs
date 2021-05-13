@@ -1,6 +1,5 @@
 ﻿using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
@@ -9,6 +8,8 @@ using System.Text;
 using System.Threading.Tasks;
 using Optional;
 using Optional.Linq;
+using System.Text.Json;
+using System.Linq;
 
 namespace Microsoft.PWABuilder.ManifestFinder
 {
@@ -17,7 +18,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
         private readonly Uri url;
         private readonly ILogger logger;
 
-        private const string userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.96 Safari/537.36 Edg/88.0.705.56 PWABuilder";
+        private const string userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36";
         private static readonly HttpClient http = CreateHttpClient();
 
         public ManifestService(Uri url, ILogger logger)
@@ -34,12 +35,14 @@ namespace Microsoft.PWABuilder.ManifestFinder
         {
             var document = await LoadPage();
             var manifestNode = LoadManifestNode(document);
-            var manifestContext = await LoadManifestInfo(manifestNode);
-            var manifestObject = DeserializeManifest(manifestContext.Json);
+            var manifestContext = await LoadManifestInfo(manifestNode);            
+            var (manifestObject, dynamicManifest) = DeserializeManifest(manifestContext.Json);
+            var manifestScore = GetManifestScore(manifestObject);
             return new ManifestResult
             {
                 ManifestUrl = manifestContext.Uri,
-                ManifestContents = manifestObject
+                ManifestContents = dynamicManifest, // Dynamic manifest here, otherwise we end up with null values for things that should be undefined, which throws some of our tooling (e.g. web package generator) for a loop.
+                ManifestScore = manifestScore
             };
         }
 
@@ -103,13 +106,15 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
         }
 
-        private object DeserializeManifest(string manifestContents)
+        private (WebAppManifest parsedManifest, dynamic rawManifest) DeserializeManifest(string manifestContents)
         {
             // Try to parse it into an object. Failure to do this suggests malformed manifest JSON.
             // We've also seen issues where sites are misconfigured to return the HTML of the page when requesting the manifest.
             try
             {
-                return JsonConvert.DeserializeObject<dynamic>(manifestContents);
+                var parsedManifest = JsonSerializer.Deserialize<WebAppManifest>(manifestContents);
+                dynamic dynamicManifest = Newtonsoft.Json.Linq.JObject.Parse(manifestContents);
+                return (parsedManifest, dynamicManifest);
             }
             catch (Exception deserializeError)
             {
@@ -119,9 +124,43 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
         }
 
-        private async Task<ManifestContext> LoadManifestInfo(HtmlNode manifestNode)
+        private Dictionary<string, int> GetManifestScore(WebAppManifest manifest)
         {
-            // Make sure we have a vlaid href attribute on the manifest node.
+            var requiredFields = new[]
+            {
+                ("icons", 5, manifest.Icons?.Count > 0),
+                ("name", 5, !string.IsNullOrWhiteSpace(manifest.Name)),
+                ("short_name", 5, !string.IsNullOrWhiteSpace(manifest.ShortName)),
+                ("start_url", 5, !string.IsNullOrWhiteSpace(manifest.StartUrl))
+            };
+            var recommendedFields = new[]
+            {
+                ("display", 2, !string.IsNullOrWhiteSpace(manifest.Display) && WebAppManifest.DisplayTypes.Contains(manifest.Display)),
+                ("background_color", 2, !string.IsNullOrWhiteSpace(manifest.BackgroundColor)),
+                ("description", 2, !string.IsNullOrWhiteSpace(manifest.Description)),
+                ("orientation", 2, !string.IsNullOrWhiteSpace(manifest.Orientation) && WebAppManifest.OrientationTypes.Contains(manifest.Orientation)),
+                ("screenshots", 2, manifest.Screenshots?.Count > 0),
+                ("large_square_png_icon", 2, manifest.Icons?.Any(i => i.IsAnyPurpose() && i.IsPng() && i.IsSquare() && i.GetLargestDimension()?.height >= 512) == true),
+                ("maskable_icon", 2, manifest.Icons?.Any(i => i.GetPurposes().Contains("maskable", StringComparer.InvariantCultureIgnoreCase)) == true),
+                ("categories", 2, manifest.Categories?.Count > 0),
+                ("shortcuts", 2, manifest.Shortcuts?.Count > 0)
+            };
+            var optionalFields = new[]
+            {
+                ("iarc_rating_id", 1, !string.IsNullOrWhiteSpace(manifest.IarcRatingId)),
+                ("related_applications", 1, manifest.PreferRelatedApplications.HasValue && manifest.RelatedApplications != null)
+            };
+
+            return new Dictionary<string, int>(requiredFields
+                .Concat(recommendedFields)
+                .Concat(optionalFields)
+                .Concat(new[] { ("manifest", 10, true) }) // 10 points for having a manifest
+                .Select(a => new KeyValuePair<string, int>(a.Item1, a.Item3 ? a.Item2 : 0)));
+        }
+
+        private Task<ManifestContext> LoadManifestInfo(HtmlNode manifestNode)
+        {
+            // Make sure we have a valid href attribute on the manifest node.
             var manifestHref = manifestNode.Attributes["href"]?.Value;
             if (string.IsNullOrWhiteSpace(manifestHref))
             {
@@ -130,6 +169,11 @@ namespace Microsoft.PWABuilder.ManifestFinder
 
             logger.LogInformation("Manifest node detected with href {href}", manifestHref);
 
+            return LoadManifestInfo(manifestHref, manifestNode);
+        }
+
+        private async Task<ManifestContext> LoadManifestInfo(string manifestHref, HtmlNode? manifestNode)
+        {
             // First, try Uri.TryCreate(this.url, manifestHref) and see if it's valid.
             // This will work for most sites, e.g. https://www.sensoryapphouse.com/abstract4-pwa-xbox/index.html -> https://www.sensoryapphouse.com/abstract4-pwa-xbox/manifest.json
             if (Uri.TryCreate(this.url, manifestHref, out var manifestAbsoluteUrl))
@@ -159,8 +203,8 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 {
                     var manifestHrefInvalid = new ManifestNotFoundException($"Manifest element was found, but couldn't construct an absolute URI from '{this.url}' and '{manifestHref}'");
                     manifestHrefInvalid.Data.Add("manifestHref", manifestHref);
-                    manifestHrefInvalid.Data.Add("manifestNodeHtml", manifestNode.OuterHtml);
-                    manifestHrefInvalid.Data.Add("headHtml", manifestNode.ParentNode?.InnerHtml);
+                    manifestHrefInvalid.Data.Add("manifestNodeHtml", manifestNode?.OuterHtml);
+                    manifestHrefInvalid.Data.Add("headHtml", manifestNode?.ParentNode?.InnerHtml);
                     throw manifestHrefInvalid;
                 }
 

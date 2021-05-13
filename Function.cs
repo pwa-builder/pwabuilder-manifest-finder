@@ -49,7 +49,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             try
             {
                 result = await manifestService.Run();
-                urlLogger.LogUrlResult(uri, result.Error == null, result.ManifestContents, null, result.Error, stopwatch.Elapsed);
+                urlLogger.LogUrlResult(uri, result.Error == null, result.ManifestScore?.Sum(kv => kv.Value), null, result.Error, stopwatch.Elapsed);
             }
             catch (Exception manifestLoadError)
             {
