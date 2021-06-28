@@ -48,9 +48,9 @@ namespace Microsoft.PWABuilder.ManifestFinder
 
         private HtmlNode LoadManifestNode(HtmlDocument document)
         {
-            var node = document.DocumentNode?.SelectSingleNode("//head/link[@rel='manifest']") ??
+            var manifestNode = document.DocumentNode?.SelectSingleNode("//head/link[@rel='manifest']") ??
                 document.DocumentNode?.SelectSingleNode("//link[@rel='manifest']"); // We've witnesses some sites in the wild with no <head>, and they put the manifest link right in the HTML.
-            if (node == null)
+            if (manifestNode == null)
             {
                 var error = new ManifestNotFoundException("Unable to find manifest node in document");
                 var headNode = document.DocumentNode?.SelectSingleNode("//head");
@@ -61,7 +61,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 throw error;
             }
 
-            return node;
+            return manifestNode;
         }
 
         private async Task<string?> TryFetchHttpWithHttp2Fallback(Uri url, string? acceptHeader)
@@ -165,6 +165,15 @@ namespace Microsoft.PWABuilder.ManifestFinder
             if (string.IsNullOrWhiteSpace(manifestHref))
             {
                 throw new ManifestNotFoundException($"Manifest element was found, but href was missing. Raw HTML was {manifestNode.OuterHtml}");
+            }
+
+            // Do we have a base URL node? If so, use that base URL to resolve the manifest node.
+            // This fixes https://github.com/pwa-builder/PWABuilder/issues/1843
+            var baseNode = manifestNode.OwnerDocument?.DocumentNode.SelectSingleNode("//head/base");
+            var baseNodeHref = baseNode?.Attributes["href"]?.Value;
+            if (!string.IsNullOrWhiteSpace(baseNodeHref))
+            {
+                manifestHref = $"{baseNodeHref.TrimEnd('/')}/{manifestHref.TrimStart('/')}";
             }
 
             logger.LogInformation("Manifest node detected with href {href}", manifestHref);
