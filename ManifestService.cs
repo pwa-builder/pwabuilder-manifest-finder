@@ -33,8 +33,8 @@ namespace Microsoft.PWABuilder.ManifestFinder
         /// <returns></returns>
         public async Task<ManifestResult> Run()
         {
-            var document = await LoadPage();
-            var manifestNode = LoadManifestNode(document);
+            var document = await LoadPage(this.url);
+            var manifestNode = await LoadManifestNode(document);
             var manifestContext = await LoadManifestInfo(manifestNode);            
             var (manifestObject, dynamicManifest) = DeserializeManifest(manifestContext.Json);
             var manifestScore = GetManifestScore(manifestObject);
@@ -46,10 +46,18 @@ namespace Microsoft.PWABuilder.ManifestFinder
             };
         }
 
-        private HtmlNode LoadManifestNode(HtmlDocument document)
+        private async Task<HtmlNode> LoadManifestNode(HtmlDocument document)
         {
             var manifestNode = document.DocumentNode?.SelectSingleNode("//head/link[@rel='manifest']") ??
                 document.DocumentNode?.SelectSingleNode("//link[@rel='manifest']"); // We've witnesses some sites in the wild with no <head>, and they put the manifest link right in the HTML.
+
+            // If we can't find a manifest node, see if we're being redirected via a <meta http-equiv="refresh" content="0; url='https://someotherurl'" /> tag
+            // See https://github.com/pwa-builder/CloudAPK/issues/78#issuecomment-872132508
+            if (manifestNode == null)
+            {
+                manifestNode = await TryLoadManifestNodeFromRedirectTag(document);
+            }
+
             if (manifestNode == null)
             {
                 var error = new ManifestNotFoundException("Unable to find manifest node in document");
@@ -62,6 +70,34 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
 
             return manifestNode;
+        }
+
+        private async Task<HtmlNode?> TryLoadManifestNodeFromRedirectTag(HtmlDocument document)
+        {
+            // Redirect tags look like <meta http-equiv="refresh" content="0; url='https://someotherurl'" />
+
+            // Do we have a redirect? If so, follow that and then see if we can load the manifest node.
+            var redirectTag = document.DocumentNode?.SelectSingleNode("//head/meta[@http-equiv='refresh']");
+            if (redirectTag != null)
+            {
+                var redirectSettings = redirectTag.Attributes["content"]?.Value ?? string.Empty;
+                var redirectRegex = "url\\s*=\\s*['|\"]*([^'\"]+)";
+                var regexMatch = System.Text.RegularExpressions.Regex.Match(redirectSettings, redirectRegex, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (regexMatch.Success && regexMatch.Groups.Count == 2)
+                {
+                    var redirectUrl = regexMatch.Groups[1].Value;
+                    
+                    // Make sure it's a legit URI, and make sure it's not the page we're already on.
+                    if (Uri.TryCreate(this.url, redirectUrl, out var redirectUri) && redirectUri != this.url)
+                    {
+                        logger.LogInformation("Page contained redirect tag in <head>. Redirecting to {url}", redirectUrl);
+                        var redirectDoc = await LoadPage(redirectUri);
+                        return await LoadManifestNode(redirectDoc);
+                    }
+                }
+            }
+
+            return null;
         }
 
         private async Task<string?> TryFetchHttpWithHttp2Fallback(Uri url, string? acceptHeader)
@@ -228,7 +264,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             throw new ManifestNotFoundException($"Unable to detect manifest. Attempted manifest download at {manifestAbsoluteUrl} and {localPathManifestUrl}, but both failed.");
         }
 
-        private async Task<HtmlDocument> LoadPage()
+        private async Task<HtmlDocument> LoadPage(Uri url)
         {
             var web = new HtmlWeb
             {
@@ -236,7 +272,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             };
             try
             {
-                return await web.LoadFromWebAsync(this.url, null, null);
+                return await web.LoadFromWebAsync(url, null, null);
             }
             catch (Exception error)
             {
