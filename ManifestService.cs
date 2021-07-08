@@ -152,10 +152,45 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 dynamic dynamicManifest = Newtonsoft.Json.Linq.JObject.Parse(manifestContents);
                 return (parsedManifest, dynamicManifest);
             }
+            catch (JsonException)
+            {
+                return DeserializeManifestWhileSkippingInvalidFields(manifestContents);
+            }
             catch (Exception deserializeError)
             {
                 deserializeError.Data.Add("manifestJson", manifestContents);
                 logger.LogError(deserializeError, "Fetched manifest contents but was unable to deserialize it into an object. Raw JSON: \r\n\r\n{json}", manifestContents);
+                throw;
+            }
+        }
+
+        private (WebAppManifest parsedManifest, dynamic rawManifest) DeserializeManifestWhileSkippingInvalidFields(string manifestContents)
+        {
+            try
+            {
+                var manifestParseErrors = new List<Exception>();
+                dynamic dynamicManifest = Newtonsoft.Json.Linq.JObject.Parse(manifestContents);
+                var parsedManifest = Newtonsoft.Json.JsonConvert.DeserializeObject<WebAppManifest>(manifestContents, new Newtonsoft.Json.JsonSerializerSettings
+                {
+                    Error = (sender, args) =>
+                    {
+                        logger.LogWarning(args.ErrorContext.Error, "Error deserializing manifest property {path}", args.ErrorContext.Path);
+                        args.ErrorContext.Handled = true;
+                        manifestParseErrors.Add(args.ErrorContext.Error);
+                    }
+                });
+
+                // OK, did anything actually serialize? If not, throw.
+                if (!parsedManifest.HasAnyNonNullProps())
+                {
+                    throw new AggregateException("Manifest didn't contain any valid properties. This suggests the manifest isn't valid JSON.", manifestParseErrors);
+                }
+
+                return (parsedManifest, dynamicManifest);
+            }
+            catch (Exception error)
+            {
+                logger.LogError(error, "Unable to parse manifest even while skipping invalid properties");
                 throw;
             }
         }

@@ -136,6 +136,18 @@ namespace Microsoft.PWABuilder.ManifestFinder
             "landscape-primary",
             "landscape-secondary"
         };
+
+        /// <summary>
+        /// Checks whether the manifest has any properties set to a non-null value.
+        /// </summary>
+        /// <returns></returns>
+        public bool HasAnyNonNullProps()
+        {
+            var props = typeof(WebAppManifest).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            return props
+                .Select(p => p.GetValue(this))
+                .Any(val => val != null);
+        }
     }
 
     /// <summary>
