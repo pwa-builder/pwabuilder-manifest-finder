@@ -42,14 +42,14 @@ namespace Microsoft.PWABuilder.ManifestFinder
             log.LogInformation("Running manifest detection for {url}", uri);
 
             var manifestService = new ManifestService(uri, log);
-            var urlLogger = new UrlLogger(appSettings, log);
+            var urlLogger = new Analytics(appSettings, log);
             ManifestResult result;
             var stopwatch = new Stopwatch();
             stopwatch.Start();
             try
             {
                 result = await manifestService.Run();
-                urlLogger.LogUrlResult(uri, result.Error == null, result.ManifestScore?.Sum(kv => kv.Value), null, result.Error, stopwatch.Elapsed);
+                urlLogger.RecordManifestDetectionResults(uri, result.Error == null, result.ManifestScore?.Sum(kv => kv.Value), null, result.Error, stopwatch.Elapsed);
             }
             catch (Exception manifestLoadError)
             {
@@ -58,7 +58,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 result = new ManifestResult { Error = errorMessage };
                 var manifestMissingDetails = manifestLoadError is ManifestNotFoundException ? manifestLoadError.Message : null;
                 var unexpectedError = manifestMissingDetails == null ? errorMessage : null;
-                urlLogger.LogUrlResult(uri, false, null, manifestMissingDetails, unexpectedError, stopwatch.Elapsed);
+                urlLogger.RecordManifestDetectionResults(uri, false, null, manifestMissingDetails, unexpectedError, stopwatch.Elapsed);
             }
             finally
             {

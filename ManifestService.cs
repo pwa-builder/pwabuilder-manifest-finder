@@ -249,6 +249,17 @@ namespace Microsoft.PWABuilder.ManifestFinder
 
             logger.LogInformation("Manifest node detected with href {href}", manifestHref);
 
+            // Is the HREF the actual manifest data URL encoded?
+            // See https://github.com/pwa-builder/PWABuilder/issues/1926
+            var dataUrlPrefix = "data:application/manifest+json,";
+            var isDataUrl = manifestHref.StartsWith(dataUrlPrefix, StringComparison.OrdinalIgnoreCase);
+            if (isDataUrl)
+            {
+                logger.LogInformation("Manifest node href is data URL encoded string.");
+                var manifestContents = Uri.UnescapeDataString(manifestHref.Substring(dataUrlPrefix.Length));
+                return Task.FromResult(new ManifestContext(new Uri(manifestHref), manifestContents));
+            }
+
             return LoadManifestInfo(manifestHref, manifestNode);
         }
 

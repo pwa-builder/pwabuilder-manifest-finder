@@ -9,13 +9,13 @@ using System.Threading.Tasks;
 
 namespace Microsoft.PWABuilder.ManifestFinder
 {
-    public class UrlLogger
+    public class Analytics
     {
         private readonly AppSettings settings;
         private readonly ILogger logger;
         private static readonly HttpClient http = new HttpClient();
 
-        public UrlLogger(
+        public Analytics(
             AppSettings settings, 
             ILogger logger)
         {
@@ -23,7 +23,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             this.logger = logger;
         }
 
-        public void LogUrlResult(Uri url, bool manifestDetected, int? manifestScore, string? manifestMissingDetails, string? error, TimeSpan elapsed)
+        public void RecordManifestDetectionResults(Uri url, bool manifestDetected, int? manifestScore, string? manifestMissingDetails, string? error, TimeSpan elapsed)
         {
             try
             {
