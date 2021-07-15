@@ -55,7 +55,11 @@ namespace Microsoft.PWABuilder.ManifestFinder
             {
                 var errorMessage = verbose ? manifestLoadError.ToDetailedString() : manifestLoadError.GetMessageWithInnerMessages();
                 log.LogWarning(manifestLoadError, "Failed to detect manifest for {url}. {message}", url, errorMessage);
-                result = new ManifestResult { Error = errorMessage };
+                result = new ManifestResult 
+                { 
+                    Error = errorMessage,
+                    ManifestContainsInvalidJson = manifestLoadError is ManifestContainsInvalidJsonException
+                };
                 var manifestMissingDetails = manifestLoadError is ManifestNotFoundException ? manifestLoadError.Message : null;
                 var unexpectedError = manifestMissingDetails == null ? errorMessage : null;
                 urlLogger.RecordManifestDetectionResults(uri, false, null, manifestMissingDetails, unexpectedError, stopwatch.Elapsed);

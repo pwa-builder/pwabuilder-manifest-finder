@@ -25,5 +25,10 @@ namespace Microsoft.PWABuilder.ManifestFinder
         /// The error that occurred during manifest detection.
         /// </summary>
         public string? Error { get; set; }
+
+        /// <summary>
+        /// Gets whether the manifest contains invalid JSON.
+        /// </summary>
+        public bool ManifestContainsInvalidJson { get; set; }
     }
 }

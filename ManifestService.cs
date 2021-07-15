@@ -146,15 +146,26 @@ namespace Microsoft.PWABuilder.ManifestFinder
         {
             // Try to parse it into an object. Failure to do this suggests malformed manifest JSON.
             // We've also seen issues where sites are misconfigured to return the HTML of the page when requesting the manifest.
+            dynamic dynamicManifest;
+            try
+            {
+                dynamicManifest = Newtonsoft.Json.Linq.JObject.Parse(manifestContents);
+            }
+            catch (Newtonsoft.Json.JsonReaderException invalidJsonError)
+            {
+                logger.LogError(invalidJsonError, "Unable to fetch manifest because manifest contains invalid JSON.");
+                throw new ManifestContainsInvalidJsonException($"The manifest contains invalid JSON. {invalidJsonError.Message}", invalidJsonError);
+            }
+
             try
             {
                 var parsedManifest = JsonSerializer.Deserialize<WebAppManifest>(manifestContents);
-                dynamic dynamicManifest = Newtonsoft.Json.Linq.JObject.Parse(manifestContents);
                 return (parsedManifest, dynamicManifest);
             }
-            catch (JsonException)
+            catch (JsonException jsonError)
             {
-                return DeserializeManifestWhileSkippingInvalidFields(manifestContents);
+                logger.LogWarning(jsonError, "Error deserializing manifest JSON. Attempting deserialization while skipping invalid property types...");
+                return DeserializeManifestWhileSkippingInvalidFields(dynamicManifest, manifestContents);
             }
             catch (Exception deserializeError)
             {
@@ -164,12 +175,11 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
         }
 
-        private (WebAppManifest parsedManifest, dynamic rawManifest) DeserializeManifestWhileSkippingInvalidFields(string manifestContents)
+        private (WebAppManifest parsedManifest, dynamic rawManifest) DeserializeManifestWhileSkippingInvalidFields(dynamic dynamicManifest, string manifestContents)
         {
             try
             {
                 var manifestParseErrors = new List<Exception>();
-                dynamic dynamicManifest = Newtonsoft.Json.Linq.JObject.Parse(manifestContents);
                 var parsedManifest = Newtonsoft.Json.JsonConvert.DeserializeObject<WebAppManifest>(manifestContents, new Newtonsoft.Json.JsonSerializerSettings
                 {
                     Error = (sender, args) =>
