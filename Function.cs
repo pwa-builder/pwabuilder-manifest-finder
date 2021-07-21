@@ -44,7 +44,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             var manifestService = new ManifestService(uri, log);
             var urlLogger = new Analytics(appSettings, log);
             ManifestResult result;
-            var stopwatch = new Stopwatch();
+            var stopwatch = new Stopwatch(); 
             stopwatch.Start();
             try
             {

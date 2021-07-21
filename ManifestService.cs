@@ -100,7 +100,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             return null;
         }
 
-        private async Task<string?> TryFetchHttpWithHttp2Fallback(Uri url, string? acceptHeader)
+        private async Task<string?> TryFetchWithHttpClient(Uri url, string? acceptHeader)
         {
             try
             {
@@ -113,12 +113,45 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 httpResponse.EnsureSuccessStatusCode();
                 return await httpResponse.Content.ReadAsStringAsync();
             }
+            catch (InvalidOperationException invalidOpError) when (invalidOpError.Message.Contains("The character set provided in ContentType is invalid."))
+            {
+                // Invalid encoding? Sometimes webpages have incorrectly set their charset / content type.
+                // See if we can just parse the thing using UTF-8.
+                logger.LogWarning(invalidOpError, "Unable to parse using HTTP client due to invalid ContentType. Attempting to parse using UTF-8.");
+                return await TryFetchWithForcedUtf8(url, acceptHeader);
+            }
             catch (Exception httpException)
             {
-                logger.LogWarning(httpException, "Failed to load {url} using HTTP. Falling back to HTTP/2.", url);
+                logger.LogWarning(httpException, "Failed to fetch {url} using HTTP client. Falling back to HTTP/2 fetch.", url);
+                return await TryFetchWithHttp2Client(url, acceptHeader);
             }
+        }
 
-            // Attempt HTTP/2
+        private async Task<string?> TryFetchWithForcedUtf8(Uri url, string? acceptHeader)
+        {
+            try
+            {
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+                if (!string.IsNullOrEmpty(acceptHeader))
+                {
+                    httpRequest.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue(acceptHeader));
+                }
+                var httpResponse = await http.SendAsync(httpRequest);
+                httpResponse.EnsureSuccessStatusCode();
+                var contentBytes = await httpResponse.Content.ReadAsByteArrayAsync();
+                var responseString = Encoding.UTF8.GetString(contentBytes);
+                logger.LogInformation("Successfully parsed the HTML using forced UTF-8 mode");
+                return responseString;
+            }
+            catch (Exception error)
+            {
+                logger.LogWarning(error, "Unable to parse HTML using forced UTF-8 mode.");
+                return null;
+            }
+        }
+
+        private async Task<string?> TryFetchWithHttp2Client(Uri url, string? acceptHeader)
+        {
             try
             {
                 using var http2Request = new HttpRequestMessage(HttpMethod.Get, url)
@@ -281,7 +314,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             {
                 // Fetch the manifest.
                 logger.LogInformation("Attempting manifest download using absolute URL {url}", manifestAbsoluteUrl);
-                var manifestContents = await TryFetchHttpWithHttp2Fallback(manifestAbsoluteUrl, "application/json");
+                var manifestContents = await TryFetchWithHttpClient(manifestAbsoluteUrl, "application/json");
                 if (!string.IsNullOrEmpty(manifestContents))
                 {
                     return new ManifestContext(manifestAbsoluteUrl, manifestContents);
@@ -310,7 +343,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 }
 
                 logger.LogInformation("PWA URL has local path {path}. Attempting manifest detection with local path fallback and absolute manifest URL {url}.", url.PathAndQuery, localPathManifestUrl);
-                var manifestContents = await TryFetchHttpWithHttp2Fallback(localPathManifestUrl, "application/json");
+                var manifestContents = await TryFetchWithHttpClient(localPathManifestUrl, "application/json");
                 if (!string.IsNullOrEmpty(manifestContents))
                 {
                     return new ManifestContext(localPathManifestUrl, manifestContents);
@@ -353,7 +386,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             string? html;
             try
             {
-                html = await TryFetchHttpWithHttp2Fallback(this.url, "text/html");
+                html = await TryFetchWithHttpClient(this.url, "text/html");
             }
             catch (Exception httpError)
             {
