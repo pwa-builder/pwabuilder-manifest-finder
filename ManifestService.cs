@@ -18,7 +18,8 @@ namespace Microsoft.PWABuilder.ManifestFinder
         private readonly Uri url;
         private readonly ILogger logger;
 
-        private const string userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36";
+        // NOTE: user agent should include curl/7.64.1, otherwise some sites like Facebook Workplace will block us
+        private const string userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.59 curl/7.64.1";
         private static readonly HttpClient http = CreateHttpClient();
 
         public ManifestService(Uri url, ILogger logger)
@@ -299,7 +300,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             if (isDataUrl)
             {
                 logger.LogInformation("Manifest node href is data URL encoded string.");
-                var manifestContents = Uri.UnescapeDataString(manifestHref.Substring(dataUrlPrefix.Length));
+                var manifestContents = Uri.UnescapeDataString(manifestHref[dataUrlPrefix.Length..]);
                 return Task.FromResult(new ManifestContext(new Uri(manifestHref), manifestContents));
             }
 
@@ -357,7 +358,8 @@ namespace Microsoft.PWABuilder.ManifestFinder
         {
             var web = new HtmlWeb
             {
-                UserAgent = userAgent
+                CaptureRedirect = true,
+                UserAgent = userAgent,
             };
             try
             {
