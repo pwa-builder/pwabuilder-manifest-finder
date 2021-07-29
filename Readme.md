@@ -15,7 +15,7 @@ Open the .sln file in Visual Studio. F5 to run.
 
 Issue a GET to `/api/FindManifest?url=https://somepwa.com`, where somepwa.com is a URL to get the web manifest for. Sample production call:
 
-- https://pwabuilder-manifest-finder.azurewebsites.net/apiFindManifest?url=https://webboard.app
+- https://pwabuilder-manifest-finder.azurewebsites.net/api/findmanifest?url=https://webboard.app
 
 You may optionally supply a verbose=1 flag in the URL to return verbose error information.
 
