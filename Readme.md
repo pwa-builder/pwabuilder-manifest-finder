@@ -21,16 +21,24 @@ The response will be a JSON object containing:
 
 ```typescript
 {
-	manifestUrl: string | null,
+    manifestUrl: string | null,
     manifestContents: object | null,
-	error: string | null
+    error: string | null
+    manifestContainsInvalidJson: boolean | null;
+    manifestScore: object | null;
 }
 ```
 
 - **manifestUrl** - the URL to the web manifest. This will be null if there was an error fetching the web app or its manifest.
 - **manifestContents** - the manifest object. This will be null if there was an error fetching the web app or its manifest, or if the manifest contents was invalid JSON.
 - **error** - the error that occurred when fetching the manifest. This will be null if the operation succeeded.
+- **manifestContainsInvalidJson** - A boolean indicating if the manifest contains invalid JSON.
+- **manifestScore** - When the manifest is detected, this contains a score for each property in the manifest.
 
 ## Deployment 
 
-This Azure function is deployed to https://pwabuilder-manifest-finder.azurewebsites.net
+This Azure function is deployed to https://pwabuilder-manifest-finder.azurewebsites.net. You can invoke the service using:
+
+- https://pwabuilder-manifest-finder.azurewebsites.net/apiFindManifest?url=https://webboard.app
+
+Where https://webboard.app should be the URL of the PWA you want to detect the manifest for.
