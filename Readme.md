@@ -13,7 +13,9 @@ Open the .sln file in Visual Studio. F5 to run.
 
 ## How to use it
 
-Issue a GET to `/api/FindManifest?url=https://somepwa.com`, where somepwa.com is a URL to get the web manifest for.
+Issue a GET to `/api/FindManifest?url=https://somepwa.com`, where somepwa.com is a URL to get the web manifest for. Sample production call:
+
+- https://pwabuilder-manifest-finder.azurewebsites.net/apiFindManifest?url=https://webboard.app
 
 You may optionally supply a verbose=1 flag in the URL to return verbose error information.
 
@@ -37,8 +39,4 @@ The response will be a JSON object containing:
 
 ## Deployment 
 
-This Azure function is deployed to https://pwabuilder-manifest-finder.azurewebsites.net. You can invoke the service using:
-
-- https://pwabuilder-manifest-finder.azurewebsites.net/apiFindManifest?url=https://webboard.app
-
-Where https://webboard.app should be the URL of the PWA you want to detect the manifest for.
+This Azure function is deployed to https://pwabuilder-manifest-finder.azurewebsites.net
