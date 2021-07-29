@@ -15,7 +15,7 @@ Issue a GET to `/api/FindManifest?url=https://somepwa.com`, where somepwa.com is
 
 - https://pwabuilder-manifest-finder.azurewebsites.net/api/findmanifest?url=https://webboard.app
 
-You may optionally supply a verbose=1 flag in the URL to return verbose error information.
+You may optionally supply a ?verbose=1 query string in the URL to return additional error information.
 
 The response will be a JSON object containing:
 
