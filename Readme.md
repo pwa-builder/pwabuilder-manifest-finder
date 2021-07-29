@@ -21,9 +21,9 @@ The response will be a JSON object containing:
 
 ```typescript
 {
-    manifestUrl: string | null,
-    manifestContents: object | null,
-    error: string | null
+    manifestUrl: string | null;
+    manifestContents: object | null;
+    error: string | null;
     manifestContainsInvalidJson: boolean | null;
     manifestScore: object | null;
 }
