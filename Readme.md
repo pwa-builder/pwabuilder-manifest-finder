@@ -24,7 +24,7 @@ The response will be a JSON object containing:
     manifestUrl: string | null;
     manifestContents: object | null;
     error: string | null;
-    manifestContainsInvalidJson: boolean | null;
+    manifestContainsInvalidJson: boolean;
     manifestScore: object | null;
 }
 ```
@@ -32,7 +32,7 @@ The response will be a JSON object containing:
 - **manifestUrl** - the URL to the web manifest. This will be null if there was an error fetching the web app or its manifest.
 - **manifestContents** - the manifest object. This will be null if there was an error fetching the web app or its manifest, or if the manifest contents was invalid JSON.
 - **error** - the error that occurred when fetching the manifest. This will be null if the operation succeeded.
-- **manifestContainsInvalidJson** - A boolean indicating if the manifest contains invalid JSON.
+- **manifestContainsInvalidJson** - If there was an error (error is non-null), this tells you if the error was due to invalid JSON in the manifest.
 - **manifestScore** - When the manifest is detected, this contains a score for each property in the manifest.
 
 ## Deployment 
