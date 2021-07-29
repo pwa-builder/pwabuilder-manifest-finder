@@ -102,7 +102,16 @@ namespace Microsoft.PWABuilder.ManifestFinder
             return null;
         }
 
-        private async Task<string?> TryFetchWithHttpClient(Uri url, params string[] acceptHeaders)
+        /// <summary>
+        /// Attempts to fetch a resource at the specified URL.
+        /// If the fetch fails, it will attempt to fetch using HTTP/2.
+        /// Failures due to encoding errors will also attempt fetch using UTF-8 encoding as a fallback.
+        /// If all fetches fail, the result will contain the exception.
+        /// </summary>
+        /// <param name="url"></param>
+        /// <param name="acceptHeaders"></param>
+        /// <returns></returns>
+        private async Task<HttpFetchResult> TryFetch(Uri url, params string[] acceptHeaders)
         {
             try
             {
@@ -117,7 +126,11 @@ namespace Microsoft.PWABuilder.ManifestFinder
 
                 var httpResponse = await http.SendAsync(httpRequest);
                 httpResponse.EnsureSuccessStatusCode();
-                return await httpResponse.Content.ReadAsStringAsync();
+                var content = await httpResponse.Content.ReadAsStringAsync();
+                return new HttpFetchResult
+                {
+                    Result = content
+                };
             }
             catch (InvalidOperationException invalidOpError) when (invalidOpError.Message.Contains("The character set provided in ContentType is invalid."))
             {
@@ -133,7 +146,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
         }
 
-        private async Task<string?> TryFetchWithForcedUtf8(Uri url, params string[] acceptHeaders)
+        private async Task<HttpFetchResult> TryFetchWithForcedUtf8(Uri url, params string[] acceptHeaders)
         {
             try
             {
@@ -151,16 +164,22 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 var contentBytes = await httpResponse.Content.ReadAsByteArrayAsync();
                 var responseString = Encoding.UTF8.GetString(contentBytes);
                 logger.LogInformation("Successfully parsed the HTML using forced UTF-8 mode");
-                return responseString;
+                return new HttpFetchResult
+                {
+                    Result = responseString
+                };
             }
             catch (Exception error)
             {
                 logger.LogWarning(error, "Unable to parse HTML using forced UTF-8 mode.");
-                return null;
+                return new HttpFetchResult
+                {
+                    Error = error
+                };
             }
         }
 
-        private async Task<string?> TryFetchWithHttp2Client(Uri url, params string[] acceptHeaders)
+        private async Task<HttpFetchResult> TryFetchWithHttp2Client(Uri url, params string[] acceptHeaders)
         {
             try
             {
@@ -179,12 +198,18 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 result.EnsureSuccessStatusCode();
                 var contentString = await result.Content.ReadAsStringAsync();
                 logger.LogInformation("Successfully fetched {url} via HTTP/2 fallback", url);
-                return contentString;
+                return new HttpFetchResult
+                {
+                    Result = contentString
+                };
             }
             catch (Exception http2Error)
             {
                 logger.LogWarning(http2Error, "Unable to fetch {url} using HTTP/2 fallback.", url);
-                return null;
+                return new HttpFetchResult
+                {
+                    Error = http2Error
+                };
             }
         }
 
@@ -327,13 +352,13 @@ namespace Microsoft.PWABuilder.ManifestFinder
             {
                 // Fetch the manifest.
                 logger.LogInformation("Attempting manifest download using absolute URL {url}", manifestAbsoluteUrl);
-                var manifestContents = await TryFetchWithHttpClient(manifestAbsoluteUrl, manifestMimeTypes);
-                if (!string.IsNullOrEmpty(manifestContents))
+                var manifestFetch = await TryFetch(manifestAbsoluteUrl, manifestMimeTypes);
+                if (!string.IsNullOrEmpty(manifestFetch.Result))
                 {
-                    return new ManifestContext(manifestAbsoluteUrl, manifestContents);
+                    return new ManifestContext(manifestAbsoluteUrl, manifestFetch.Result);
                 }
 
-                logger.LogWarning("Unable to download manifest using absolute URL {url}. Falling back to local path detection.", manifestAbsoluteUrl);
+                logger.LogWarning(manifestFetch.Error, "Unable to download manifest using absolute URL {url}. Falling back to local path detection.", manifestAbsoluteUrl);
             }
 
             // Fetching the manifest relative to the URL failed. This might mean the site has a local path that needs to end in slash.
@@ -356,10 +381,10 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 }
 
                 logger.LogInformation("PWA URL has local path {path}. Attempting manifest detection with local path fallback and absolute manifest URL {url}.", url.PathAndQuery, localPathManifestUrl);
-                var manifestContents = await TryFetchWithHttpClient(localPathManifestUrl, manifestMimeTypes);
-                if (!string.IsNullOrEmpty(manifestContents))
+                var manifestFetch = await TryFetch(localPathManifestUrl, manifestMimeTypes);
+                if (!string.IsNullOrEmpty(manifestFetch.Result))
                 {
-                    return new ManifestContext(localPathManifestUrl, manifestContents);
+                    return new ManifestContext(localPathManifestUrl, manifestFetch.Result);
                 }
             }
 
@@ -368,57 +393,15 @@ namespace Microsoft.PWABuilder.ManifestFinder
 
         private async Task<HtmlDocument> LoadPage(Uri url)
         {
-            var web = new HtmlWeb
+            var htmlFetch = await TryFetch(url, "text/html");
+            if (htmlFetch.Error != null)
             {
-                CaptureRedirect = true,
-                UserAgent = userAgent,
-            };
-            try
-            {
-                return await web.LoadFromWebAsync(url, null, null);
-            }
-            catch (Exception error)
-            {
-                logger.LogWarning(error, "Unable to load {url} via HtmlAgilityPack. Falling back to HttpClient load.", url);
-                var manuallyLoadedHtmlDoc = await TryLoadPageViaHttpClient();
-                if (manuallyLoadedHtmlDoc != null)
-                {
-                    logger.LogInformation("Fallback successful, loaded {url} via HttpClient.", url);
-                    return manuallyLoadedHtmlDoc;
-                }
-                else
-                {
-                    logger.LogWarning("Fallback also failed to loaded {url}", url);
-                }
-                
-                throw new Exception("Unable to download page for " + url.ToString(), error);
-            }
-        }
-
-        private async Task<HtmlDocument?> TryLoadPageViaHttpClient()
-        {
-            string? html;
-            try
-            {
-                html = await TryFetchWithHttpClient(this.url, "text/html");
-            }
-            catch (Exception httpError)
-            {
-                logger.LogError(httpError, "Fallback to fetch {url} with HttpClient failed.", this.url);
-                return null;
+                throw htmlFetch.Error;
             }
 
-            try
-            {
-                var htmlDoc = new HtmlDocument();
-                htmlDoc.LoadHtml(html ?? string.Empty);
-                return htmlDoc;
-            }
-            catch (Exception docLoadError)
-            {
-                logger.LogError(docLoadError, "Fetched page via HttpClient fallback, but the HTML couldn't be loaded into a document. Raw HTML: \r\n\r\n{raw}", html);
-                return null;
-            }
+            var htmlDoc = new HtmlDocument();
+            htmlDoc.LoadHtml(htmlFetch.Result ?? string.Empty);
+            return htmlDoc;
         }
 
         private static HttpClient CreateHttpClient()
