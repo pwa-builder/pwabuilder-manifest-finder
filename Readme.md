@@ -4,9 +4,7 @@ This is a lightweight Azure function that analyzes a URL and finds its web manif
 
 ## How is it used in PWABuilder?
 
-PWABuilder.com uses [Puppeteer](https://developers.google.com/web/tools/puppeteer/), a headless Chrome engine, to load and analyze URLs for web manifest, service worker, HTTPS, and more.
-
-However, when Puppeteer fails to fetch a web app's manifest, we use this function as a fallback.
+PWABuilder.com uses this service to find a manifest for a PWA. Additionally, if this service is unable to detect a manifest, PWABuilder falls back to a Puppeteer (headless Chrome)-based service to find the manifest.
 
 ## Running locally
 Open the .sln file in Visual Studio. F5 to run.
