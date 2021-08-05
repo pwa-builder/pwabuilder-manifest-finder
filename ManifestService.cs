@@ -323,7 +323,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             // This fixes https://github.com/pwa-builder/PWABuilder/issues/1843
             var baseNode = manifestNode.OwnerDocument?.DocumentNode.SelectSingleNode("//head/base");
             var baseNodeHref = baseNode?.Attributes["href"]?.Value;
-            if (!string.IsNullOrWhiteSpace(baseNodeHref))
+            if (!string.IsNullOrWhiteSpace(baseNodeHref) && baseNodeHref != "/")
             {
                 manifestHref = $"{baseNodeHref.TrimEnd('/')}/{manifestHref.TrimStart('/')}";
             }
