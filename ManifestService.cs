@@ -266,10 +266,19 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 {
                     Error = (sender, args) =>
                     {
-                        logger.LogWarning(args.ErrorContext.Error, "Error deserializing manifest property {path}", args.ErrorContext.Path);
+                        logger.LogWarning(args.ErrorContext.Error, "Unable to deserialize manifest property {path}", args.ErrorContext.Path);
                         args.ErrorContext.Handled = true;
                         var manifestField = args.ErrorContext.Path ?? args.ErrorContext.Member as string ?? "manifest";
                         var errorMessage = args.ErrorContext.Error?.Message ?? "unknown error";
+
+                        // Is it "[type] could not be converted to [list]? If so, shower a nicer Javascript-y warning
+                        var isMessageArrayError = errorMessage.StartsWith("Error converting value", StringComparison.InvariantCultureIgnoreCase) && 
+                        errorMessage.Contains("to type 'System.Collections.Generic.List", StringComparison.InvariantCultureIgnoreCase);
+                        if (isMessageArrayError)
+                        {
+                            errorMessage = "Must be an array. " + errorMessage;
+                        }
+
                         manifestFieldErrors.AddOrUpdate(manifestField, errorMessage);
                     }
                 });
