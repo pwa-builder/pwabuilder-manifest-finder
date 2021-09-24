@@ -38,13 +38,15 @@ namespace Microsoft.PWABuilder.ManifestFinder
             var document = await LoadPage(this.url);
             var manifestNode = await LoadManifestNode(document);
             var manifestContext = await LoadManifestInfo(manifestNode);            
-            var (manifestObject, dynamicManifest) = DeserializeManifest(manifestContext.Json);
-            var manifestScore = GetManifestScore(manifestObject);
+            var deserializationResult = DeserializeManifest(manifestContext.Json);
+            var manifestScore = GetManifestScore(deserializationResult.Manifest);
             return new ManifestResult
             {
                 ManifestUrl = manifestContext.Uri,
-                ManifestContents = dynamicManifest, // Dynamic manifest here, otherwise we end up with null values for things that should be undefined, which throws some of our tooling (e.g. web package generator) for a loop.
-                ManifestScore = manifestScore
+                ManifestScore = manifestScore,
+                ManifestContainsInvalidJson = deserializationResult.InvalidJson,
+                Warnings = deserializationResult.Warnings,
+                ManifestContents = deserializationResult.RawManifest // raw manifest here, otherwise we end up with null values for things that should be undefined, which throws some of our tooling (e.g. web package generator) for a loop.
             };
         }
 
@@ -213,7 +215,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
         }
 
-        private (WebAppManifest parsedManifest, dynamic rawManifest) DeserializeManifest(string manifestContents)
+        private ManifestDeserializationResult DeserializeManifest(string manifestContents)
         {
             // Try to parse it into an object. Failure to do this suggests malformed manifest JSON.
             // We've also seen issues where sites are misconfigured to return the HTML of the page when requesting the manifest.
@@ -225,13 +227,20 @@ namespace Microsoft.PWABuilder.ManifestFinder
             catch (Newtonsoft.Json.JsonReaderException invalidJsonError)
             {
                 logger.LogError(invalidJsonError, "Unable to fetch manifest because manifest contains invalid JSON.");
-                throw new ManifestContainsInvalidJsonException($"The manifest contains invalid JSON. {invalidJsonError.Message}", invalidJsonError);
+                return new ManifestDeserializationResult
+                {
+                    InvalidJson = true
+                };
             }
 
             try
             {
                 var parsedManifest = JsonSerializer.Deserialize<WebAppManifest>(manifestContents);
-                return (parsedManifest, dynamicManifest);
+                return new ManifestDeserializationResult
+                {
+                    Manifest = parsedManifest,
+                    RawManifest = dynamicManifest
+                };
             }
             catch (JsonException jsonError)
             {
@@ -246,67 +255,81 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
         }
 
-        private (WebAppManifest parsedManifest, dynamic rawManifest) DeserializeManifestWhileSkippingInvalidFields(dynamic dynamicManifest, string manifestContents)
+        private ManifestDeserializationResult DeserializeManifestWhileSkippingInvalidFields(dynamic dynamicManifest, string manifestContents)
         {
+            var manifestFieldErrors = new Dictionary<string, List<string>>();
             try
             {
-                var manifestParseErrors = new List<Exception>();
                 var parsedManifest = Newtonsoft.Json.JsonConvert.DeserializeObject<WebAppManifest>(manifestContents, new Newtonsoft.Json.JsonSerializerSettings
                 {
                     Error = (sender, args) =>
                     {
                         logger.LogWarning(args.ErrorContext.Error, "Error deserializing manifest property {path}", args.ErrorContext.Path);
                         args.ErrorContext.Handled = true;
-                        manifestParseErrors.Add(args.ErrorContext.Error);
+                        var manifestField = args.ErrorContext.Path ?? args.ErrorContext.Member as string ?? "manifest";
+                        var errorMessage = args.ErrorContext.Error?.Message ?? "unknown error";
+                        manifestFieldErrors.AddOrUpdate(manifestField, errorMessage);
                     }
                 });
 
                 // OK, did anything actually serialize? If not, throw.
                 if (!parsedManifest.HasAnyNonNullProps())
                 {
-                    throw new AggregateException("Manifest didn't contain any valid properties. This suggests the manifest isn't valid JSON.", manifestParseErrors);
+                    logger.LogError("Attempted to parse manifest while skipping invalid fields, but all the manifest fields were null. This suggests the manifest is invalid JSON. Details: {warnings}", manifestFieldErrors);
+                    return new ManifestDeserializationResult
+                    {
+                        InvalidJson = true,
+                        Warnings = manifestFieldErrors
+                    };
                 }
 
-                return (parsedManifest, dynamicManifest);
+                return new ManifestDeserializationResult
+                {
+                    Manifest = parsedManifest,
+                    RawManifest = dynamicManifest,
+                    InvalidJson = false,
+                    Warnings = manifestFieldErrors
+                };
             }
             catch (Exception error)
             {
-                logger.LogError(error, "Unable to parse manifest even while skipping invalid properties");
+                logger.LogError(error, "Unable to parse manifest even while skipping invalid properties due to error. Warnings encountered: {warnings}", manifestFieldErrors);
                 throw;
             }
         }
 
-        private Dictionary<string, int> GetManifestScore(WebAppManifest manifest)
+        private Dictionary<string, int> GetManifestScore(WebAppManifest? manifest)
         {
             var requiredFields = new[]
             {
-                ("icons", 5, manifest.Icons?.Count > 0),
-                ("name", 5, !string.IsNullOrWhiteSpace(manifest.Name)),
-                ("short_name", 5, !string.IsNullOrWhiteSpace(manifest.ShortName)),
-                ("start_url", 5, !string.IsNullOrWhiteSpace(manifest.StartUrl))
+                ("icons", 5, manifest?.Icons?.Count > 0),
+                ("name", 5, !string.IsNullOrWhiteSpace(manifest?.Name)),
+                ("short_name", 5, !string.IsNullOrWhiteSpace(manifest?.ShortName)),
+                ("start_url", 5, !string.IsNullOrWhiteSpace(manifest?.StartUrl))
             };
             var recommendedFields = new[]
             {
-                ("display", 2, !string.IsNullOrWhiteSpace(manifest.Display) && WebAppManifest.DisplayTypes.Contains(manifest.Display)),
-                ("background_color", 2, !string.IsNullOrWhiteSpace(manifest.BackgroundColor)),
-                ("description", 2, !string.IsNullOrWhiteSpace(manifest.Description)),
-                ("orientation", 2, !string.IsNullOrWhiteSpace(manifest.Orientation) && WebAppManifest.OrientationTypes.Contains(manifest.Orientation)),
-                ("screenshots", 2, manifest.Screenshots?.Count > 0),
-                ("large_square_png_icon", 2, manifest.Icons?.Any(i => i.IsAnyPurpose() && i.IsPng() && i.IsSquare() && i.GetLargestDimension()?.height >= 512) == true),
-                ("maskable_icon", 2, manifest.Icons?.Any(i => i.GetPurposes().Contains("maskable", StringComparer.InvariantCultureIgnoreCase)) == true),
-                ("categories", 2, manifest.Categories?.Count > 0),
-                ("shortcuts", 2, manifest.Shortcuts?.Count > 0)
+                ("display", 2, !string.IsNullOrWhiteSpace(manifest?.Display) && WebAppManifest.DisplayTypes.Contains(manifest.Display)),
+                ("background_color", 2, !string.IsNullOrWhiteSpace(manifest?.BackgroundColor)),
+                ("description", 2, !string.IsNullOrWhiteSpace(manifest?.Description)),
+                ("orientation", 2, !string.IsNullOrWhiteSpace(manifest?.Orientation) && WebAppManifest.OrientationTypes.Contains(manifest?.Orientation)),
+                ("screenshots", 2, manifest?.Screenshots?.Count > 0),
+                ("large_square_png_icon", 2, manifest?.Icons?.Any(i => i.IsAnyPurpose() && i.IsPng() && i.IsSquare() && i.GetLargestDimension()?.height >= 512) == true),
+                ("maskable_icon", 2, manifest?.Icons?.Any(i => i.GetPurposes().Contains("maskable", StringComparer.InvariantCultureIgnoreCase)) == true),
+                ("categories", 2, manifest?.Categories?.Count > 0),
+                ("shortcuts", 2, manifest?.Shortcuts?.Count > 0)
             };
             var optionalFields = new[]
             {
-                ("iarc_rating_id", 1, !string.IsNullOrWhiteSpace(manifest.IarcRatingId)),
-                ("related_applications", 1, manifest.PreferRelatedApplications.HasValue && manifest.RelatedApplications != null)
+                ("iarc_rating_id", 1, !string.IsNullOrWhiteSpace(manifest?.IarcRatingId)),
+                ("prefer_related_applications", 1, manifest?.PreferRelatedApplications.HasValue == true),
+                ("related_applications", 1, manifest?.RelatedApplications != null)
             };
 
             return new Dictionary<string, int>(requiredFields
                 .Concat(recommendedFields)
                 .Concat(optionalFields)
-                .Concat(new[] { ("manifest", 10, true) }) // 10 points for having a manifest
+                .Concat(new[] { ("manifest", 10, manifest != null) }) // 10 points for having a manifest
                 .Select(a => new KeyValuePair<string, int>(a.Item1, a.Item3 ? a.Item2 : 0)));
         }
 

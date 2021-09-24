@@ -30,5 +30,10 @@ namespace Microsoft.PWABuilder.ManifestFinder
         /// Gets whether the manifest contains invalid JSON.
         /// </summary>
         public bool ManifestContainsInvalidJson { get; set; }
+
+        /// <summary>
+        /// Gets a dictionary of warnings during manifest serialization. The keys are the manifest properties, the values are the warning messages.
+        /// </summary>
+        public Dictionary<string, List<string>> Warnings { get; set; } = new Dictionary<string, List<string>>();
     }
 }
