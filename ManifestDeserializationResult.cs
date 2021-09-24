@@ -25,6 +25,11 @@ namespace Microsoft.PWABuilder.ManifestFinder
         public bool InvalidJson { get; set; }
 
         /// <summary>
+        /// The error that occurred preventing deserialization.
+        /// </summary>
+        public Exception? Error { get; set; }
+
+        /// <summary>
         /// Gets the warnings that occurred during manifest deserialization. 
         /// The keys are manifest properties, the values are the warning messages.
         /// </summary>

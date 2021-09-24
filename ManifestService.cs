@@ -46,6 +46,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 ManifestScore = manifestScore,
                 ManifestContainsInvalidJson = deserializationResult.InvalidJson,
                 Warnings = deserializationResult.Warnings,
+                Error = deserializationResult.Error?.ToString(),
                 ManifestContents = deserializationResult.RawManifest // raw manifest here, otherwise we end up with null values for things that should be undefined, which throws some of our tooling (e.g. web package generator) for a loop.
             };
         }
@@ -229,6 +230,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 logger.LogError(invalidJsonError, "Unable to fetch manifest because manifest contains invalid JSON.");
                 return new ManifestDeserializationResult
                 {
+                    Error = invalidJsonError,
                     InvalidJson = true
                 };
             }
@@ -275,11 +277,13 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 // OK, did anything actually serialize? If not, throw.
                 if (!parsedManifest.HasAnyNonNullProps())
                 {
-                    logger.LogError("Attempted to parse manifest while skipping invalid fields, but all the manifest fields were null. This suggests the manifest is invalid JSON. Details: {warnings}", manifestFieldErrors);
+                    var badJsonError = new Exception("Attempted to parse manifest while skipping invalid fields, but all the manifest fields were null. This suggests the manifest is invalid JSON.");
+                    logger.LogError(badJsonError, "Attempted to parse manifest while skipping invalid fields, but all the manifest fields were null. This suggests the manifest is invalid JSON. Details: {warnings}", manifestFieldErrors);
                     return new ManifestDeserializationResult
                     {
                         InvalidJson = true,
-                        Warnings = manifestFieldErrors
+                        Warnings = manifestFieldErrors,
+                        Error = badJsonError
                     };
                 }
 
