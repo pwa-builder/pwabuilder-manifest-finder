@@ -17,9 +17,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
     {
         private readonly Uri url;
         private readonly ILogger logger;
-
-        // NOTE: user agent should include curl/7.64.1, otherwise some sites like Facebook Workplace will block us
-        private const string userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.59 curl/7.64.1";
+        private const string userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.71 Safari/537.36 Edg/94.0.992.38";
         private static readonly HttpClient http = CreateHttpClient();
         private static readonly string[] manifestMimeTypes = new[] { "application/json", "application/manifest+json" };
 
@@ -119,15 +117,18 @@ namespace Microsoft.PWABuilder.ManifestFinder
             try
             {
                 using var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-                if (acceptHeaders != null)
+                httpRequest.AddAcceptHeaders(acceptHeaders);
+                var httpResponse = await http.SendAsync(httpRequest);
+
+                // If it's a 403, we have special handling for this.
+                if (httpResponse.StatusCode == System.Net.HttpStatusCode.Forbidden)
                 {
-                    foreach (var header in acceptHeaders)
-                    {
-                        httpRequest.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue(header));
-                    }
+                    var errorMessage = !string.IsNullOrWhiteSpace(httpResponse.ReasonPhrase) ?
+                        httpResponse.ReasonPhrase :
+                        "Web server's response was 403 Forbidden.";
+                    throw new HttpForbiddenException(errorMessage);
                 }
 
-                var httpResponse = await http.SendAsync(httpRequest);
                 httpResponse.EnsureSuccessStatusCode();
                 var content = await httpResponse.Content.ReadAsStringAsync();
                 return new HttpFetchResult
@@ -141,6 +142,11 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 // See if we can just parse the thing using UTF-8.
                 logger.LogWarning(invalidOpError, "Unable to parse using HTTP client due to invalid ContentType. Attempting to parse using UTF-8.");
                 return await TryFetchWithForcedUtf8(url, acceptHeaders);
+            }
+            catch (HttpForbiddenException forbiddenError)
+            {
+                logger.LogWarning(forbiddenError, "Received 403 Forbidden when fetching {url}. Attempting fetch with user agent fallback.");
+                return await TryFetchWithCurlUserAgent(url, acceptHeaders);
             }
             catch (Exception httpException)
             {
@@ -190,13 +196,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 {
                     Version = new Version(2, 0)
                 };
-                if (acceptHeaders != null)
-                {
-                    foreach (var header in acceptHeaders)
-                    {
-                        http2Request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue(header));
-                    }
-                }
+                http2Request.AddAcceptHeaders(acceptHeaders);
                 using var result = await http.SendAsync(http2Request);
                 result.EnsureSuccessStatusCode();
                 var contentString = await result.Content.ReadAsStringAsync();
@@ -213,6 +213,44 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 {
                     Error = http2Error
                 };
+            }
+        }
+
+        /// <summary>
+        /// Sets the user agent to include CURL, which some sites (e.g. Facebook) require for programmatic fetching to work.
+        /// </summary>
+        /// <param name="url">The URL to fetch</param>
+        /// <param name="acceptHeaders">Additional headers to set on the fetch request.</param>
+        /// <returns>A fetch result containing the fetch response.</returns>
+        private async Task<HttpFetchResult> TryFetchWithCurlUserAgent(Uri url, string[] acceptHeaders)
+        {
+            try
+            {
+                // Append CURL to the user agent.
+                http.SetUserAgent($"{userAgent} curl/7.64.1");
+
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+                httpRequest.AddAcceptHeaders(acceptHeaders);
+                var httpResponse = await http.SendAsync(httpRequest);
+                httpResponse.EnsureSuccessStatusCode();
+                var content = await httpResponse.Content.ReadAsStringAsync();
+                return new HttpFetchResult
+                {
+                    Result = content
+                };
+            }
+            catch (Exception fetchError)
+            {
+                logger.LogWarning(fetchError, "Unable to fetch {url} using CURL user agent fallback.", url);
+                return new HttpFetchResult
+                {
+                    Error = fetchError
+                };
+            }
+            finally
+            {
+                // Reset the user agent back to the default user agent.
+                http.SetUserAgent(userAgent);
             }
         }
 
@@ -448,7 +486,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
         private static HttpClient CreateHttpClient()
         {
             var http = new HttpClientIgnoringSslErrors();
-            http.DefaultRequestHeaders.UserAgent.ParseAdd(userAgent);
+            http.SetUserAgent(userAgent);
             return http;
         }
     }
