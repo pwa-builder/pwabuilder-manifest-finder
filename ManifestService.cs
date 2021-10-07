@@ -361,7 +361,12 @@ namespace Microsoft.PWABuilder.ManifestFinder
             var baseNodeHref = baseNode?.Attributes["href"]?.Value;
             if (!string.IsNullOrWhiteSpace(baseNodeHref) && baseNodeHref != "/")
             {
-                manifestHref = $"{baseNodeHref.TrimEnd('/')}/{manifestHref.TrimStart('/')}";
+                //manifestHref = $"{baseNodeHref.TrimEnd('/')}/{manifestHref.TrimStart('/')}";
+                // We have a base node URL. 
+                // Resolve the manifest from that. See https://github.com/pwa-builder/PWABuilder/issues/2102
+                var baseUrl = new Uri(baseNodeHref, UriKind.RelativeOrAbsolute);
+                var root = new Uri(this.url, baseUrl);
+                manifestHref = new Uri(root, new Uri(manifestHref, UriKind.RelativeOrAbsolute)).ToString();
             }
 
             logger.LogInformation("Manifest node detected with href {href}", manifestHref);
