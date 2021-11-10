@@ -17,7 +17,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
     {
         private readonly Uri url;
         private readonly ILogger logger;
-        private const string userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.71 Safari/537.36 Edg/94.0.992.38 curl/7.64.1";
+        private const string userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.71 Safari/537.36 Edg/94.0.992.38";
         private static readonly HttpClient http = CreateHttpClient();
         private static readonly string[] manifestMimeTypes = new[] { "application/json", "application/manifest+json" };
 
@@ -145,12 +145,12 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
             catch (HttpForbiddenException forbiddenError)
             {
-                logger.LogWarning(forbiddenError, "Received 403 Forbidden when fetching {url}. Attempting fetch with user agent fallback.");
-                return await TryFetchWithoutCurlUserAgent(url, acceptHeaders);
+                logger.LogWarning(forbiddenError, "Received 403 Forbidden when fetching {url}. Attempting fetch with CURL user agent fallback.");
+                return await TryFetchWithCurlUserAgent(url, acceptHeaders); // TODO: should we always try this when we encounter exception, not just forbidden exception?
             }
             catch (Exception httpException)
             {
-                logger.LogWarning(httpException, "Failed to fetch {url} using non-curl user agent. Falling back to HTTP/2 fetch.", url);
+                logger.LogWarning(httpException, "Failed to fetch {url}. Falling back to HTTP/2 fetch.", url);
                 return await TryFetchWithHttp2Client(url, acceptHeaders);
             }
         }
@@ -222,12 +222,12 @@ namespace Microsoft.PWABuilder.ManifestFinder
         /// <param name="url">The URL to fetch</param>
         /// <param name="acceptHeaders">Additional headers to set on the fetch request.</param>
         /// <returns>A fetch result containing the fetch response.</returns>
-        private async Task<HttpFetchResult> TryFetchWithoutCurlUserAgent(Uri url, string[] acceptHeaders)
+        private async Task<HttpFetchResult> TryFetchWithCurlUserAgent(Uri url, string[] acceptHeaders)
         {
             try
             {
                 // Append CURL to the user agent.
-                http.SetUserAgent(userAgent.Replace("curl/7.64.1", string.Empty));
+                http.SetUserAgent(userAgent + " curl/7.64.1");
 
                 using var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
                 httpRequest.AddAcceptHeaders(acceptHeaders);
@@ -241,7 +241,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
             catch (Exception fetchError)
             {
-                logger.LogWarning(fetchError, "Unable to fetch {url} using non-CURL user agent fallback.", url);
+                logger.LogWarning(fetchError, "Unable to fetch {url} using CURL user agent fallback.", url);
                 return new HttpFetchResult
                 {
                     Error = fetchError
