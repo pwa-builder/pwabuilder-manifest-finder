@@ -487,6 +487,16 @@ namespace Microsoft.PWABuilder.ManifestFinder
         {
             var http = new HttpClientIgnoringSslErrors();
             http.SetUserAgent(userAgent);
+
+            // Add headers that Edge itself adds. 
+            // Needed, as some sites (such as Facebook) block requests if missing these headers.
+            http.DefaultRequestHeaders.Add("sec-ch-ua", "\"Microsoft Edge\";v=\"95\",\"Chromium\";v=\"95\",\";Not A Brand\";v=\"99\"");
+            http.DefaultRequestHeaders.Add("sec-ch-ua-mobile", "?0");
+            http.DefaultRequestHeaders.Add("sec-ch-ua-platform", "Windows");
+            //http.DefaultRequestHeaders.Add("sec-fetch-dest", "document");
+            http.DefaultRequestHeaders.Add("sec-fetch-mode", "cors");
+            http.DefaultRequestHeaders.Add("sec-fetch-site", "same-origin");
+            http.DefaultRequestHeaders.Add("sec-fetch-user", "?1");
             return http;
         }
     }
