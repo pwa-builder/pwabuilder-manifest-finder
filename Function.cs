@@ -11,6 +11,7 @@ using System.Linq;
 using HtmlAgilityPack;
 using Microsoft.Extensions.Configuration;
 using System.Diagnostics;
+using Microsoft.PWABuilder.ManifestFinder.Models;
 
 namespace Microsoft.PWABuilder.ManifestFinder
 {
@@ -36,8 +37,9 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 return new BadRequestObjectResult("URIs must not be local");
             }
 
-            // Grab the optional verbose flag
-            var verbose = req.Query["verbose"].FirstOrDefault() == "1";
+            // Grab the optional flags
+            bool.TryParse(req.Query["verbose"].FirstOrDefault(), out var verbose);
+            bool.TryParse(req.Query["includeAllManifests"].FirstOrDefault(), out var includeAllManifests);
 
             log.LogInformation("Running manifest detection for {url}", uri);
 
@@ -48,7 +50,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             stopwatch.Start();
             try
             {
-                result = await manifestService.Run();
+                result = await manifestService.Run(includeAllManifests ? ManifestDetectionOptions.All : ManifestDetectionOptions.First);
                 analytics.RecordManifestDetectionResults(uri, result.Error == null, result.ManifestScore?.Sum(kv => kv.Value), null, result.Error, stopwatch.Elapsed);
             }
             catch (Exception manifestLoadError)

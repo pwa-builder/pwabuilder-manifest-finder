@@ -34,6 +34,15 @@ namespace Microsoft.PWABuilder.ManifestFinder
         /// <summary>
         /// Gets a dictionary of warnings during manifest serialization. The keys are the manifest properties, the values are the warning messages.
         /// </summary>
-        public Dictionary<string, List<string>> Warnings { get; set; } = new Dictionary<string, List<string>>();
+        public Dictionary<string, List<string>> Warnings { get; set; } = new Dictionary<string, List<string>>(0);
+
+        /// <summary>
+        /// Additional manifests found in the document. Keys are manifest URLs, values are the manifest contents. Values can be null if the manifest wasn't serializable.
+        /// </summary>
+        /// <remarks>
+        /// This was added at the request of Edge team who are doing some investigative work into manifest translations.
+        /// This is not populated unless the ?includeAllManifests=true flag is specified on the function call.
+        /// </remarks>
+        public Dictionary<Uri, dynamic?> AdditionalManifests { get; set; } = new Dictionary<Uri, dynamic?>(0);
     }
 }

@@ -10,6 +10,7 @@ using Optional;
 using Optional.Linq;
 using System.Text.Json;
 using System.Linq;
+using Microsoft.PWABuilder.ManifestFinder.Models;
 
 namespace Microsoft.PWABuilder.ManifestFinder
 {
@@ -31,13 +32,14 @@ namespace Microsoft.PWABuilder.ManifestFinder
         /// Downloads the web page, searches for the manifest, then downloads the contents of the manifest.
         /// </summary>
         /// <returns></returns>
-        public async Task<ManifestResult> Run()
+        public async Task<ManifestResult> Run(ManifestDetectionOptions options)
         {
             var document = await LoadPage(this.url);
-            var manifestNode = await LoadManifestNode(document);
-            var manifestContext = await LoadManifestInfo(manifestNode);            
+            var manifestNodes = await LoadManifestNodes(document);
+            var manifestContext = await LoadManifestInfo(manifestNodes.PrimaryManifestNode);
             var deserializationResult = DeserializeManifest(manifestContext.Json);
             var manifestScore = GetManifestScore(deserializationResult.Manifest);
+            var additionalManifests = await FetchAdditionalManifests(options, manifestNodes.AdditionalManifestNodes);
             return new ManifestResult
             {
                 ManifestUrl = manifestContext.Uri,
@@ -45,23 +47,32 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 ManifestContainsInvalidJson = deserializationResult.InvalidJson,
                 Warnings = deserializationResult.Warnings,
                 Error = deserializationResult.Error?.ToString(),
-                ManifestContents = deserializationResult.RawManifest // raw manifest here, otherwise we end up with null values for things that should be undefined, which throws some of our tooling (e.g. web package generator) for a loop.
+                ManifestContents = deserializationResult.RawManifest, // raw manifest here, otherwise we end up with null values for things that should be undefined, which throws some of our tooling (e.g. web package generator) for a loop.
+                AdditionalManifests = additionalManifests
             };
         }
 
-        private async Task<HtmlNode> LoadManifestNode(HtmlDocument document)
+        private async Task<ManifestNodeResult> LoadManifestNodes(HtmlDocument document, bool allowRedirect = true)
         {
-            var manifestNode = document.DocumentNode?.SelectSingleNode("//head/link[@rel='manifest']") ??
-                document.DocumentNode?.SelectSingleNode("//link[@rel='manifest']"); // We've witnesses some sites in the wild with no <head>, and they put the manifest link right in the HTML.
+            IEnumerable<HtmlNode>? manifestNodeCollection = document.DocumentNode?.SelectNodes("//head/link[contains(@rel, 'manifest')]") ??
+                document.DocumentNode?.SelectNodes("//link[@rel='manifest']"); // We've witnesses some sites in the wild with no <head>, and they put the manifest link right in the HTML.
+            var manifestNodes = (manifestNodeCollection ?? new HtmlNode[0]).ToList();
 
             // If we can't find a manifest node, see if we're being redirected via a <meta http-equiv="refresh" content="0; url='https://someotherurl'" /> tag
             // See https://github.com/pwa-builder/CloudAPK/issues/78#issuecomment-872132508
-            if (manifestNode == null)
+            if (manifestNodes.Count == 0 && allowRedirect)
             {
-                manifestNode = await TryLoadManifestNodeFromRedirectTag(document);
+                var manifestsFromRedirect = await TryLoadManifestNodesFromRedirectTag(document);
+                if (manifestsFromRedirect != null)
+                {
+                    manifestNodes = new[] { manifestsFromRedirect.PrimaryManifestNode }
+                        .Concat(manifestsFromRedirect.AdditionalManifestNodes)
+                        .ToList();
+                }
             }
 
-            if (manifestNode == null)
+            var primaryManifestNode = manifestNodes.First();
+            if (primaryManifestNode == null)
             {
                 var error = new ManifestNotFoundException("Unable to find manifest node in document");
                 var headNode = document.DocumentNode?.SelectSingleNode("//head");
@@ -72,10 +83,10 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 throw error;
             }
 
-            return manifestNode;
+            return new ManifestNodeResult(primaryManifestNode, manifestNodes.Skip(1));
         }
 
-        private async Task<HtmlNode?> TryLoadManifestNodeFromRedirectTag(HtmlDocument document)
+        private async Task<ManifestNodeResult?> TryLoadManifestNodesFromRedirectTag(HtmlDocument document)
         {
             // Redirect tags look like <meta http-equiv="refresh" content="0; url='https://someotherurl'" />
 
@@ -95,7 +106,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
                     {
                         logger.LogInformation("Page contained redirect tag in <head>. Redirecting to {url}", redirectUrl);
                         var redirectDoc = await LoadPage(redirectUri);
-                        return await LoadManifestNode(redirectDoc);
+                        return await LoadManifestNodes(redirectDoc, allowRedirect: false); // disallow redirect so that we don't get a recursive loop.
                     }
                 }
             }
@@ -382,6 +393,58 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 .Concat(optionalFields)
                 .Concat(new[] { ("manifest", 10, manifest != null) }) // 10 points for having a manifest
                 .Select(a => new KeyValuePair<string, int>(a.Item1, a.Item3 ? a.Item2 : 0)));
+        }
+
+        private async Task<Dictionary<Uri, object?>> FetchAdditionalManifests(ManifestDetectionOptions options, IEnumerable<HtmlNode> additionalManifestNodes)
+        {
+            // Punt if we're not configured to return additional manifests, or we don't have any additional manifest nodes.
+            var results = new Dictionary<Uri, object?>();
+            if (options == ManifestDetectionOptions.First)
+            {
+                return results;
+            }
+
+            foreach (var manifestNode in additionalManifestNodes)
+            {
+                var manifestInfo = await TryLoadManifestInfo(manifestNode);
+                if (manifestInfo != null)
+                {
+                    var manifestObj = TryParseManifestJson(manifestInfo.Json);
+                    results.Add(manifestInfo.Uri, manifestObj);
+                }
+                else
+                {
+                    logger.LogWarning("Unable to fetch additional manifest at {url}", manifestNode.GetAttributeValue("href", "[node href unavailable]"));
+                }
+            }
+
+            return results;            
+        }
+
+        private object? TryParseManifestJson(string manifestJson)
+        {
+            try
+            {
+                return Newtonsoft.Json.Linq.JObject.Parse(manifestJson);
+            }
+            catch (Exception error)
+            {
+                logger.LogWarning(error, "Failed to parse manifest JSON {rawJson}", manifestJson);
+                return null;
+            }
+        }
+
+        private async Task<ManifestContext?> TryLoadManifestInfo(HtmlNode manifestNode)
+        {
+            try
+            {
+                return await LoadManifestInfo(manifestNode);
+            }
+            catch (Exception loadManifestError)
+            {
+                logger.LogWarning(loadManifestError, "Failed to load additional manifest at {href}", manifestNode.GetAttributeValue("href", string.Empty));
+                return null;
+            }
         }
 
         private Task<ManifestContext> LoadManifestInfo(HtmlNode manifestNode)
