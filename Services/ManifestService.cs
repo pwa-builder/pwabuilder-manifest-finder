@@ -71,7 +71,11 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 }
             }
 
-            var primaryManifestNode = manifestNodes.First();
+            // Check for exact "rel=manifest" here, otherwise we can get mismatches, e.g. "<link rel="wlwmanifest" type="application/wlwmanifest+xml" href="https://www.prokhata.com/wp-includes/wlwmanifest.xml">"
+            // See https://github.com/pwa-builder/PWABuilder/issues/2308
+            var primaryManifestNode =
+                manifestNodes.FirstOrDefault(m => m.GetAttributeValue("rel", null) == "manifest") ?? 
+                manifestNodes.First();
             if (primaryManifestNode == null)
             {
                 var error = new ManifestNotFoundException("Unable to find manifest node in document");
