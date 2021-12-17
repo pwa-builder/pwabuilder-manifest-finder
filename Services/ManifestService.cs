@@ -585,7 +585,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
 
             // Add headers that Edge itself adds. 
             // Needed, as some sites (such as Facebook) block requests if missing these headers.
-            http.DefaultRequestHeaders.Add("sec-ch-ua", "\"Microsoft Edge\";v=\"95\",\"Chromium\";v=\"95\",\";Not A Brand\";v=\"99\"");
+            http.DefaultRequestHeaders.Add("sec-ch-ua", "\"Microsoft Edge\";v=\"96\",\"Chromium\";v=\"96\",\";Not A Brand\";v=\"99\"");
             http.DefaultRequestHeaders.Add("sec-ch-ua-mobile", "?0");
             http.DefaultRequestHeaders.Add("sec-ch-ua-platform", "Windows");
             //http.DefaultRequestHeaders.Add("sec-fetch-dest", "document");
