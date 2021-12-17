@@ -230,6 +230,18 @@ namespace Microsoft.PWABuilder.ManifestFinder
         }
 
         /// <summary>
+        /// Determines whether the icon has a width and height of the specified dimensions or larger.
+        /// </summary>
+        /// <param name="width"></param>
+        /// <param name="height"></param>
+        /// <returns></returns>
+        public bool HasDimensionOrLarger(int width, int height)
+        {
+            var largestDimension = this.GetLargestDimension().GetValueOrDefault();
+            return largestDimension.width >= width && largestDimension.height >= height;
+        }
+
+        /// <summary>
         /// Gets the largest dimension for the image.
         /// </summary>
         /// <returns></returns>

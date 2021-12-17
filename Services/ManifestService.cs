@@ -38,7 +38,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             var manifestNodes = await LoadManifestNodes(document);
             var manifestContext = await LoadManifestInfo(manifestNodes.PrimaryManifestNode);
             var deserializationResult = DeserializeManifest(manifestContext.Json);
-            var manifestScore = GetManifestScore(deserializationResult.Manifest);
+            var manifestScore = await GetManifestScore(deserializationResult.Manifest, manifestContext.Uri);
             var additionalManifests = await FetchAdditionalManifests(options, manifestNodes.AdditionalManifestNodes);
             return new ManifestResult
             {
@@ -360,39 +360,71 @@ namespace Microsoft.PWABuilder.ManifestFinder
             }
         }
 
-        private Dictionary<string, int> GetManifestScore(WebAppManifest? manifest)
+        private async Task<Dictionary<string, int>> GetManifestScore(WebAppManifest? manifest, Uri webManifestUri)
         {
+            var largeSquareAnyPurposePng = manifest?.Icons?.FirstOrDefault(i => i.IsAnyPurpose() && i.IsSquare() && i.IsPng() && i.HasDimensionOrLarger(512, 512));
+            var canResolveLargeSquarePng = await TryCheckImageResolves(largeSquareAnyPurposePng, webManifestUri);
+
             var requiredFields = new[]
             {
-                ("icons", 5, manifest?.Icons?.Count > 0),
-                ("name", 5, !string.IsNullOrWhiteSpace(manifest?.Name)),
-                ("short_name", 5, !string.IsNullOrWhiteSpace(manifest?.ShortName)),
-                ("start_url", 5, !string.IsNullOrWhiteSpace(manifest?.StartUrl))
+                ("hasManifest", 10, manifest != null),
+                ("icons", 10, manifest?.Icons?.Count > 0),
+                ("name", 10, !string.IsNullOrWhiteSpace(manifest?.Name)),
+                ("short_name", 10, !string.IsNullOrWhiteSpace(manifest?.ShortName)),
+                ("start_url", 10, !string.IsNullOrWhiteSpace(manifest?.StartUrl)),
+                ("hasSquarePng512Icon", 10, largeSquareAnyPurposePng != null),
+                ("squarePng512IconResolves", 10, canResolveLargeSquarePng)
             };
             var recommendedFields = new[]
             {
-                ("display", 2, !string.IsNullOrWhiteSpace(manifest?.Display) && WebAppManifest.DisplayTypes.Contains(manifest.Display)),
-                ("background_color", 2, !string.IsNullOrWhiteSpace(manifest?.BackgroundColor)),
-                ("description", 2, !string.IsNullOrWhiteSpace(manifest?.Description)),
-                ("orientation", 2, !string.IsNullOrWhiteSpace(manifest?.Orientation) && WebAppManifest.OrientationTypes.Contains(manifest?.Orientation)),
-                ("screenshots", 2, manifest?.Screenshots?.Count > 0),
-                ("large_square_png_icon", 2, manifest?.Icons?.Any(i => i.IsAnyPurpose() && i.IsPng() && i.IsSquare() && i.GetLargestDimension()?.height >= 512) == true),
-                ("maskable_icon", 2, manifest?.Icons?.Any(i => i.GetPurposes().Contains("maskable", StringComparer.InvariantCultureIgnoreCase)) == true),
-                ("categories", 2, manifest?.Categories?.Count > 0),
-                ("shortcuts", 2, manifest?.Shortcuts?.Count > 0)
+                ("display", 10, !string.IsNullOrWhiteSpace(manifest?.Display) && WebAppManifest.DisplayTypes.Contains(manifest.Display)),
+                ("background_color", 10, !string.IsNullOrWhiteSpace(manifest?.BackgroundColor)),
+                ("theme_color", 10, !string.IsNullOrWhiteSpace(manifest?.BackgroundColor)),
+                ("orientation", 10, !string.IsNullOrWhiteSpace(manifest?.Orientation) && WebAppManifest.OrientationTypes.Contains(manifest?.Orientation)),
+                //("description", 10, !string.IsNullOrWhiteSpace(manifest?.Description)), // COMMENTED OUT: not currently checked by PWABuilder front end. Probably should be.
+                ("screenshots", 10, manifest?.Screenshots?.Count > 0),
+                ("maskable_icon", 10, manifest?.Icons?.Any(i => i.IsPng() && i.IsSquare() && i.HasDimensionOrLarger(512, 512) && i.GetPurposes().Contains("maskable", StringComparer.InvariantCultureIgnoreCase)) == true),
+                ("shortcuts", 10, manifest?.Shortcuts?.Count > 0),
+                ("categories", 10, manifest?.Categories?.Count > 0),
+                ("iconsSpecifySize", 10, manifest?.Icons?.All(i => !string.IsNullOrWhiteSpace(i.Sizes)) == true),
+                ("iconsSpecifyType", 10, manifest?.Icons?.All(i => !string.IsNullOrWhiteSpace(i.Type)) == true)
             };
             var optionalFields = new[]
             {
-                ("iarc_rating_id", 1, !string.IsNullOrWhiteSpace(manifest?.IarcRatingId)),
-                ("prefer_related_applications", 1, manifest?.PreferRelatedApplications.HasValue == true),
-                ("related_applications", 1, manifest?.RelatedApplications != null)
+                ("iarc_rating_id", 10, !string.IsNullOrWhiteSpace(manifest?.IarcRatingId)),
+                ("related_applications", 10, manifest?.RelatedApplications != null)
             };
 
             return new Dictionary<string, int>(requiredFields
                 .Concat(recommendedFields)
                 .Concat(optionalFields)
-                .Concat(new[] { ("manifest", 10, manifest != null) }) // 10 points for having a manifest
                 .Select(a => new KeyValuePair<string, int>(a.Item1, a.Item3 ? a.Item2 : 0)));
+        }
+
+        private async Task<bool> TryCheckImageResolves(WebManifestIcon? icon, Uri webManifestUrl)
+        {
+            if (icon == null || string.IsNullOrWhiteSpace(icon.Src) || webManifestUrl == null)
+            {
+                return false;
+            }
+
+            if (!Uri.TryCreate(webManifestUrl, icon?.Src, out var absoluteIconUri))
+            {
+                return false;
+            }
+            
+            try
+            {
+                // Sending HTTP HEAD checks for the existence of a resource without downloading it.
+                using var headMsg = new HttpRequestMessage(HttpMethod.Head, absoluteIconUri);
+                var headResult = await http.SendAsync(headMsg);
+                return headResult.IsSuccessStatusCode;
+            }
+            catch (Exception error)
+            {
+                logger.LogWarning(error, "Attempted to check if image exists at URL {url}, but encountered an error.", absoluteIconUri);
+                return false;
+            }
         }
 
         private async Task<Dictionary<Uri, object?>> FetchAdditionalManifests(ManifestDetectionOptions options, IEnumerable<HtmlNode> additionalManifestNodes)
