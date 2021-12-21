@@ -75,14 +75,14 @@ namespace Microsoft.PWABuilder.ManifestFinder
             // See https://github.com/pwa-builder/PWABuilder/issues/2308
             var primaryManifestNode =
                 manifestNodes.FirstOrDefault(m => m.GetAttributeValue("rel", null) == "manifest") ?? 
-                manifestNodes.First();
+                manifestNodes.FirstOrDefault();
             if (primaryManifestNode == null)
             {
                 var error = new ManifestNotFoundException("Unable to find manifest node in document");
                 var headNode = document.DocumentNode?.SelectSingleNode("//head");
                 if (headNode != null)
                 {
-                    error.Data.Add("headNode", headNode.OuterHtml);
+                    error.Data.Add("documentHtml", document.DocumentNode?.InnerHtml);
                 }
                 throw error;
             }
