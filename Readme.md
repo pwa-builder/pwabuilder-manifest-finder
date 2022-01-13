@@ -1,3 +1,5 @@
+Please use our [main repository for any issues/bugs/features suggestion](https://github.com/pwa-builder/PWABuilder/issues/new/choose).
+
 ## What is this?
 
 This is a lightweight Azure function that analyzes a URL and finds its web manifest.
