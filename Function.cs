@@ -39,6 +39,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
 
             // Grab the optional flags
             bool.TryParse(req.Query["verbose"].FirstOrDefault(), out var verbose);
+            bool.TryParse(req.Query["skipAnalytics"].FirstOrDefault(), out var skipAnalytics);
             bool.TryParse(req.Query["includeAllManifests"].FirstOrDefault(), out var includeAllManifests);
 
             log.LogInformation("Running manifest detection for {url}", uri);
@@ -51,7 +52,10 @@ namespace Microsoft.PWABuilder.ManifestFinder
             try
             {
                 result = await manifestService.Run(includeAllManifests ? ManifestDetectionOptions.All : ManifestDetectionOptions.First);
-                analytics.RecordManifestDetectionResults(uri, result.Error == null, result.ManifestScore?.Sum(kv => kv.Value), null, result.Error, stopwatch.Elapsed);
+                if (!skipAnalytics)
+                {
+                    analytics.RecordManifestDetectionResults(uri, result.Error == null, result.ManifestScore?.Sum(kv => kv.Value), null, result.Error, stopwatch.Elapsed);
+                }
             }
             catch (Exception manifestLoadError)
             {
