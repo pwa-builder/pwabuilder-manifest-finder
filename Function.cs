@@ -67,7 +67,10 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 };
                 var manifestMissingDetails = manifestLoadError is ManifestNotFoundException ? manifestLoadError.Message : null;
                 var unexpectedError = manifestMissingDetails == null ? errorMessage : null;
-                analytics.RecordManifestDetectionResults(uri, false, null, manifestMissingDetails, unexpectedError, stopwatch.Elapsed);
+                if (!skipAnalytics)
+                {
+                    analytics.RecordManifestDetectionResults(uri, false, null, manifestMissingDetails, unexpectedError, stopwatch.Elapsed);
+                }
             }
             finally
             {
