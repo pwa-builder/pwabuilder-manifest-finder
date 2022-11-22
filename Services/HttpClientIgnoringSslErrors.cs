@@ -12,7 +12,8 @@ namespace Microsoft.PWABuilder.ManifestFinder
             {
                 // Don't worry about HTTPS errors
                 ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
-                AllowAutoRedirect = true
+                AllowAutoRedirect = true,
+                MaxAutomaticRedirections = 5
             })
         {
         }

@@ -127,7 +127,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
         /// <param name="url"></param>
         /// <param name="acceptHeaders"></param>
         /// <returns></returns>
-        private async Task<HttpFetchResult> TryFetch(Uri url, params string[] acceptHeaders)
+        private async Task<HttpFetchResult> TryFetch(Uri url, bool followRedirects, params string[] acceptHeaders)
         {
             try
             {
@@ -142,6 +142,13 @@ namespace Microsoft.PWABuilder.ManifestFinder
                         httpResponse.ReasonPhrase :
                         "Web server's response was 403 Forbidden.";
                     throw new HttpForbiddenException(errorMessage);
+                }
+
+                // If it's a 301 Permanently Moved, follow the URL.
+                // Yes, we configured our HttpClient to follow redirects, but we've encountered some URLs that don't seem to honor this, e.g. https://msngames.tribunecontentagency.com/killer-sudoku-daily
+                if (followRedirects && (int)httpResponse.StatusCode >= 300 && (int)httpResponse.StatusCode <= 399)
+                {
+                    
                 }
 
                 httpResponse.EnsureSuccessStatusCode();
@@ -530,7 +537,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
             {
                 // Fetch the manifest.
                 logger.LogInformation("Attempting manifest download using absolute URL {url}", manifestAbsoluteUrl);
-                var manifestFetch = await TryFetch(manifestAbsoluteUrl, manifestMimeTypes);
+                var manifestFetch = await TryFetch(url: manifestAbsoluteUrl, followRedirects: true, acceptHeaders: manifestMimeTypes);
                 if (!string.IsNullOrEmpty(manifestFetch.Result))
                 {
                     return new ManifestContext(manifestAbsoluteUrl, manifestFetch.Result);
@@ -559,7 +566,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
                 }
 
                 logger.LogInformation("PWA URL has local path {path}. Attempting manifest detection with local path fallback and absolute manifest URL {url}.", url.PathAndQuery, localPathManifestUrl);
-                var manifestFetch = await TryFetch(localPathManifestUrl, manifestMimeTypes);
+                var manifestFetch = await TryFetch(localPathManifestUrl, true, manifestMimeTypes);
                 if (!string.IsNullOrEmpty(manifestFetch.Result))
                 {
                     return new ManifestContext(localPathManifestUrl, manifestFetch.Result);
@@ -571,7 +578,7 @@ namespace Microsoft.PWABuilder.ManifestFinder
 
         private async Task<HtmlDocument> LoadPage(Uri url)
         {
-            var htmlFetch = await TryFetch(url, "text/html");
+            var htmlFetch = await TryFetch(url, true, "text/html");
             if (htmlFetch.Error != null)
             {
                 throw htmlFetch.Error;
