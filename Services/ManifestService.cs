@@ -146,9 +146,9 @@ namespace Microsoft.PWABuilder.ManifestFinder
 
                 // If it's a 301 Permanently Moved, follow the URL.
                 // Yes, we configured our HttpClient to follow redirects, but we've encountered some URLs that don't seem to honor this, e.g. https://msngames.tribunecontentagency.com/killer-sudoku-daily
-                if (followRedirects && (int)httpResponse.StatusCode >= 300 && (int)httpResponse.StatusCode <= 399)
+                if (followRedirects && (int)httpResponse.StatusCode >= 300 && (int)httpResponse.StatusCode <= 399 && httpResponse.Headers.Location != null && httpResponse.Headers.Location.IsAbsoluteUri)
                 {
-                    
+                    return await TryFetch(url: httpResponse.Headers.Location, followRedirects: false, acceptHeaders: acceptHeaders);
                 }
 
                 httpResponse.EnsureSuccessStatusCode();
